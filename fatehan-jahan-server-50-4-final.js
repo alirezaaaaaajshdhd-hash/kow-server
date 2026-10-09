@@ -645,8 +645,24 @@ return json({ok:true,countries,roundId:r.round_id,roundStatus:r.status,winner:r.
 }if(path==='/round/status'&&method==='GET'){const s=clamp(safeInt(url.searchParams.get('server'),1),1,1000);return json(await checkRound(env,s),200,origin);}if(path==='/round/start'&&method==='POST'){const u=await authUser(request,env);
 if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000);const r=await getRound(env,s);if(r.status==='ended')return json({ok:true,...await startNewRoundIfEnded(env,s)}
 ,200,origin);return json({ok:true,roundId:r.round_id,status:r.status},200,origin);}if(path==='/country/claim'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
-if(!safeInt(u.server_selected))return err('ابتدا سرور را انتخاب کن',409,origin);const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,5),c=String(b.country||'').trim();
-if(!validCountry(c))return err('کشور نامعتبر',400,origin);let r=await getRound(env,s);if(r.status==='ended')r=await startNewRoundIfEnded(env,s);const mine=await env.DB.prepare('SELECT country_key FROM country_owners WHERE username=? AND server=? LIMIT 1').bind(u.username,s).first();
+const b=await request.json().catch(()=>({}));let s=clamp(safeInt(safeInt(u.server_selected)?u.server:b.server,1),1,5);const c=String(b.country||'').trim();
+if(!validCountry(c))return err('کشور نامعتبر',400,origin);
+/* A fresh account may arrive directly from the single-server country screen.
+   Persist server selection here rather than requiring a fragile extra request. */
+if(!safeInt(u.server_selected)){
+  if(s>1){
+    const sr=await env.DB.prepare('SELECT ever_opened FROM servers WHERE id=?').bind(s).first();
+    if(safeInt(sr&&sr.ever_opened)!==1){
+      const prev=await env.DB.prepare('SELECT COUNT(*) c FROM country_owners WHERE server=?').bind(s-1).first();
+      if(safeInt(prev&&prev.c)>=COUNTRIES.length)await env.DB.prepare("UPDATE servers SET status='online',ever_opened=1 WHERE id=?").bind(s).run();
+      else return err('این سرور هنوز باز نشده',409,origin);
+    }
+  }
+  const capacity=await env.DB.prepare('SELECT COUNT(*) c FROM country_owners WHERE server=?').bind(s).first();
+  if(safeInt(capacity&&capacity.c)>=COUNTRIES.length)return err('این سرور پر است',409,origin);
+  await env.DB.prepare('UPDATE users SET server=?,server_selected=1,last_seen=? WHERE username=?').bind(s,now(),u.username).run();
+}
+let r=await getRound(env,s);if(r.status==='ended')r=await startNewRoundIfEnded(env,s);const mine=await env.DB.prepare('SELECT country_key FROM country_owners WHERE username=? AND server=? LIMIT 1').bind(u.username,s).first();
 if(mine)return err('تو قبلاً کشور داری',409,origin);const ins=await env.DB.prepare('INSERT OR IGNORE INTO country_owners(country_key,username,server,captured_at) VALUES(?,?,?,?)').bind(c,u.username,s,now()).run();
 if(!ins.meta||ins.meta.changes!==1)return err('این کشور گرفته شده',409,origin);await env.DB.prepare('UPDATE users SET server=?,countries_count=1,last_seen=? WHERE username=?').bind(s,now(),u.username).run();
 await env.DB.prepare(`INSERT OR REPLACE INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?)`).bind(u.username,s,JSON.stringify({server:s,gold:KOW_TIMING.initialGold,oil:0,steel:0,food:0,fuel:0,units:{},modelInventory:{},productionLines:{},playerTerritories:[c],structures:[],factoriesM:[],defenses:[],radars:[],launchpads:[],bases:[],armies:[],navalFleets:[]}),now()).run();await env.DB.prepare('UPDATE users SET gold=?,server=?,server_selected=1,countries_count=1,last_seen=? WHERE username=?').bind(KOW_TIMING.initialGold,s,now(),u.username).run();await updateQuestProgress(env,u.username,'daily_conquer',1).catch(e=>console.error('country claim daily quest',e));await updateWeeklyProgress(env,u.username,'w_conquer_3',1).catch(e=>console.error('country claim weekly quest',e));let rr;try{rr=await checkRound(env,s)}catch(e){console.error('country claim round check',e);rr={roundId:r.round_id,roundEnded:false,winner:null}};
