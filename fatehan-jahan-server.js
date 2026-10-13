@@ -711,9 +711,27 @@ return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEn
 }if(path==='/save'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const r=await getRound(env,safeInt(u.server,1));if(r.status==='ended')return json({ok:true,roundEnded:true,winner:r.winner||null,roundId:r.round_id}
 ,200,origin);const b=await request.json().catch(()=>({}));const incoming=b.save||{};if(!incoming||typeof incoming!=='object'||Array.isArray(incoming))return err('ذخیره نامعتبر',400,origin);if(Object.keys(incoming).length===0)return err('داده ذخیره خالی است؛ اطلاعات قبلی حفظ شد',400,origin);const s=safeInt(u.server,1);
 let result;try{result=await withGameLock(env,`save:${u.username}:${s}`,async()=>{const cur=await getSave(env,u.username,s)||{};const save=mergeSaveForPersistence(cur,incoming);if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
-,200,origin);}if(path==='/load'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000),save=await getSave(env,u.username,s),recovery=await getSaveRecovery(env,u.username,s,save);
-if(save){const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));}return json({ok:true,save,recovery}
-,200,origin);}if(path==='/stats'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const x=await env.DB.prepare('SELECT score,countries_count,level,xp,server FROM users WHERE username=?').bind(u.username).first();
+,200,origin);}if(path==='/load'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000);let save=await getSave(env,u.username,s);const recovery=await getSaveRecovery(env,u.username,s,save);
+// Self-heal a fresh/partial current row from the richest valid same-round backup.
+// Earlier code returned `recovery` but the client only consumed `save`, so the
+// backup was never actually used after a bad snapshot overwrote the live row.
+const richness=x=>backupRichness(x);
+const hasOwned=x=>!!(x&&Array.isArray(x.playerTerritories)&&x.playerTerritories.length>0);
+let recovered=false;
+if(recovery&&hasOwned(recovery)){
+  const rr=await getRound(env,s);
+  const curRound=safeInt(save&&save.roundId,0), bakRound=safeInt(recovery.roundId,0), activeRound=safeInt(rr&&rr.round_id,1);
+  const sameRound=(curRound&&bakRound)?curRound===bakRound:activeRound===1;
+  const shouldRecover=(!hasOwned(save)||richness(recovery)>richness(save))&&sameRound;
+  if(shouldRecover){
+    recovery.server=s;
+    await env.DB.prepare('INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO UPDATE SET save_json=excluded.save_json,updated_at=excluded.updated_at').bind(u.username,s,JSON.stringify(recovery),now()).run();
+    save=recovery;recovered=true;
+    console.warn('KOW save auto-recovered from backup',u.username,'server',s,'round',activeRound);
+  }
+}
+if(save){const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));}
+return json({ok:true,save,recovery,recovered},200,origin);}if(path==='/stats'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const x=await env.DB.prepare('SELECT score,countries_count,level,xp,server FROM users WHERE username=?').bind(u.username).first();
 return json({ok:true,score:safeInt(x&&x.score),countries:safeInt(x&&x.countries_count),level:safeInt(x&&x.level,1),xp:safeInt(x&&x.xp),server:safeInt(x&&x.server,1)},200,origin);}if(path==='/leaderboard'&&method==='GET'){const cutoff=now()-60000;
 const rows=(await env.DB.prepare('SELECT username,score,countries_count,level,last_seen,CASE WHEN last_seen>=? THEN 1 ELSE 0 END AS online FROM users ORDER BY score DESC,countries_count DESC,username ASC LIMIT 100').bind(cutoff).all()).results||[];
 return json({ok:true,leaderboard:rows},200,origin);}if(path==='/sync'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000),t=now();
