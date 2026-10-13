@@ -155,14 +155,31 @@ if(!s)return null;const banned=await isBanned(env,s.username);try{await env.DB.p
 const u=await authUser(request,env);return!!(u&&(u.is_admin===1||u.is_admin==='1'));}async function paymentCallbackOK(request,env){const secret=request.headers.get('X-Payment-Secret')||'';
 if(env.PAYMENT_CALLBACK_SECRET&&secret&&secret===String(env.PAYMENT_CALLBACK_SECRET))return true;const admin=request.headers.get('X-Admin-Token')||'';return!!(env.ADMIN_TOKEN&&admin===String(env.ADMIN_TOKEN));
 }async function addNotification(env,username,title,message){try{await env.DB.prepare('INSERT INTO notifications(username,title,message,read,created_at) VALUES(?,?,?,?,?)').bind(username,title,message,0,now()).run();
-}catch(e){}}async function grantReward(env,username,reward){const r=reward||{},gold=Math.max(0,safeInt(r.gold)),xp=Math.max(0,safeInt(r.xp));const u=await env.DB.prepare('SELECT * FROM users WHERE username=?').bind(username).first();
+}catch(e){}}async function ensureGiftCodes(env){
+  const db=env.DB;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS gift_codes (code TEXT PRIMARY KEY, reward_json TEXT NOT NULL, max_uses INTEGER DEFAULT 1, uses INTEGER DEFAULT 0, expires_at INTEGER)`).run();
+  const equipment=Object.fromEntries(Object.keys(MODEL_META).map(model=>[model,1]));
+  const stmts=[];
+  for(const code of ['KOW-ARMY-7Q2M','KOW-ARMY-9X4P','KOW-ARMY-3N8R','KOW-ARMY-6T5W','KOW-ARMY-2B7K']) stmts.push(db.prepare('INSERT OR IGNORE INTO gift_codes(code,reward_json,max_uses,uses,expires_at) VALUES(?,?,?,?,NULL)').bind(code,JSON.stringify({models:equipment}),100000,0));
+  for(const code of ['KOW-GOLD-4D8H','KOW-GOLD-5J2L','KOW-GOLD-8P3V','KOW-GOLD-1R6C','KOW-GOLD-9M7A']) stmts.push(db.prepare('INSERT OR IGNORE INTO gift_codes(code,reward_json,max_uses,uses,expires_at) VALUES(?,?,?,?,NULL)').bind(code,JSON.stringify({gold:10000}),100000,0));
+  await db.batch(stmts);
+}
+async function grantReward(env,username,reward){const r=reward||{},gold=Math.max(0,safeInt(r.gold)),xp=Math.max(0,safeInt(r.xp));const u=await env.DB.prepare('SELECT * FROM users WHERE username=?').bind(username).first();
 if(!u)return;const server=Math.max(1,safeInt(u.server,1));if(gold>0)await marketAccount(env,username,server);const cols=await tableColumns(env.DB,'users');if(cols.has('gold'))await env.DB.prepare('UPDATE users SET gold=COALESCE(gold,0)+?,xp=COALESCE(xp,0)+? WHERE username=?').bind(gold,xp,username).run();
 else await env.DB.prepare('UPDATE users SET xp=COALESCE(xp,0)+? WHERE username=?').bind(xp,username).run();for(const[model,qtyRaw]of Object.entries(r.models||{})){if(!MODEL_META[model])throw new Error(`مدل جایزه نامعتبر است: ${model}`);
 const qty=Math.max(0,safeInt(qtyRaw));if(qty>0){await upsertModelQty(env,username,server,model,qty);if(DEFENSE_MODULE_MODELS.has(model))await upsertModelQty(env,username,server,DEFENSE_LAUNCHER_MODEL,qty);
-}}const save=await getSave(env,username,server);if(save){const row=await env.DB.prepare('SELECT gold FROM users WHERE username=?').bind(username).first();save.gold=Math.max(0,safeInt(row&&row.gold));
-save.xp=Math.max(0,safeInt(save.xp))+xp;for(const k of['oil','steel','food'])if(r[k]!=null)save[k]=Math.max(0,safeInt(save[k]))+Math.max(0,safeInt(r[k]));save.modelInventory=save.modelInventory||{}
-;for(const[model,qtyRaw]of Object.entries(r.models||{})){const qty=Math.max(0,safeInt(qtyRaw));save.modelInventory[model]=Math.max(0,safeInt(save.modelInventory[model]))+qty;}await env.DB.prepare('UPDATE kow_saves SET save_json=?,updated_at=? WHERE username=? AND server=?').bind(JSON.stringify(save),now(),username,server).run();
-}}async function getRound(env,server){let r=await env.DB.prepare('SELECT * FROM kow_round_state WHERE server=?').bind(server).first();if(!r){await env.DB.prepare('INSERT INTO kow_round_state(server,round_id,status,started_at) VALUES(?,?,?,?)').bind(server,1,'active',now()).run();
+}}// Always persist rewards, even if the player has not created a save row yet.
+const existing=await getSave(env,username,server);
+const save=(existing&&typeof existing==='object')?existing:{server,gold:0,xp:0,oil:0,steel:0,food:0,fuel:0,units:{},modelInventory:{},productionLines:{},playerTerritories:[],structures:[],factoriesM:[],defenses:[],radars:[],launchpads:[],bases:[],armies:[],navalFleets:[]};
+const row=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(username).first();
+save.server=server;
+save.gold=Math.max(0,safeInt(row&&row.gold));
+save.xp=Math.max(0,safeInt(row&&row.xp));
+for(const k of['oil','steel','food'])if(r[k]!=null)save[k]=Math.max(0,safeInt(save[k]))+Math.max(0,safeInt(r[k]));
+save.modelInventory=save.modelInventory&&typeof save.modelInventory==='object'?save.modelInventory:{};
+for(const[model,qtyRaw]of Object.entries(r.models||{})){const qty=Math.max(0,safeInt(qtyRaw));if(qty>0)save.modelInventory[model]=Math.max(0,safeInt(save.modelInventory[model]))+qty;}
+await env.DB.prepare('INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO UPDATE SET save_json=excluded.save_json,updated_at=excluded.updated_at').bind(username,server,JSON.stringify(save),now()).run();
+}async function getRound(env,server){let r=await env.DB.prepare('SELECT * FROM kow_round_state WHERE server=?').bind(server).first();if(!r){await env.DB.prepare('INSERT INTO kow_round_state(server,round_id,status,started_at) VALUES(?,?,?,?)').bind(server,1,'active',now()).run();
 r=await env.DB.prepare('SELECT * FROM kow_round_state WHERE server=?').bind(server).first();}return r;}async function checkRound(env,server){const r=await getRound(env,server);const c=await env.DB.prepare('SELECT COUNT(DISTINCT country_key) AS c FROM country_owners WHERE server=?').bind(server).first();
 const count=safeInt(c&&c.c);if(r.status==='active'&&count>=COUNTRIES.length){const w=await env.DB.prepare(`SELECT username,COUNT(*) AS n,COALESCE(MAX(s.score),0) AS score FROM country_owners co LEFT JOIN scores s ON s.username=co.username WHERE co.server=? GROUP BY username ORDER BY n DESC,score DESC,username ASC LIMIT 1`).bind(server).first();
 const winner=w?w.username:null;await env.DB.prepare('UPDATE kow_round_state SET status=\'ended\',ended_at=?,winner=? WHERE server=?').bind(now(),winner,server).run();if(server<5)await env.DB.prepare("UPDATE servers SET status='online',ever_opened=1 WHERE id=?").bind(server+1).run();
@@ -357,10 +374,16 @@ const out={...cur,...inc};
 // For state the client explicitly sends, accept that state as authoritative. The old
 // implementation unioned arrays and took Math.max for factory counts, which made
 // destroyed buildings/units reappear and made legitimate count decreases impossible.
-const arrayKeys=['structures','factoriesM','defenses','radars','launchpads','bases','armies','playerTerritories'];
+const arrayKeys=['structures','factoriesM','defenses','radars','launchpads','bases','armies','playerTerritories','marchingAttacks'];
 for(const k of arrayKeys){
-  if(Object.prototype.hasOwnProperty.call(inc,k) && Array.isArray(inc[k])) out[k]=inc[k];
-  else if(Array.isArray(cur[k])) out[k]=cur[k];
+  if(Object.prototype.hasOwnProperty.call(inc,k) && Array.isArray(inc[k])){
+    // Compatibility/data-loss guard: older clients may serialize empty marker arrays
+    // while the map is still hydrating. Only a fully hydrated current client may
+    // explicitly replace a non-empty structural collection with an empty one.
+    const structural=['structures','factoriesM','defenses','radars','launchpads','bases'];
+    if(structural.includes(k) && inc[k].length===0 && Array.isArray(cur[k]) && cur[k].length>0 && inc._kowSnapshotComplete!==true) out[k]=cur[k];
+    else out[k]=inc[k];
+  } else if(Array.isArray(cur[k])) out[k]=cur[k];
 }
 if(Object.prototype.hasOwnProperty.call(inc,'factories') && inc.factories && typeof inc.factories==='object' && !Array.isArray(inc.factories)) out.factories={...inc.factories};
 else if(cur.factories && typeof cur.factories==='object') out.factories={...cur.factories};
@@ -375,7 +398,7 @@ else if(cur.productionLines&&typeof cur.productionLines==='object') out.producti
 if(!Array.isArray(inc.navalFleets)||inc.navalFleets.length===0) out.navalFleets=Array.isArray(cur.navalFleets)?cur.navalFleets:(Array.isArray(inc.navalFleets)?inc.navalFleets:[]);
 for(const k of ['fuel','food','oil','steel','gold','xp']) if(inc[k]===undefined||inc[k]===null) out[k]=cur[k];
 return out;
-}function backupRichness(save){if(!save||typeof save!=='object')return 0;const a=k=>Array.isArray(save[k])?save[k].length:0;let n=a('playerTerritories')*2+a('bases')*50+a('structures')*20+a('factoriesM')*25+a('navalFleets')*25+a('defenses')*10+a('radars')*10+a('launchpads')*10;
+}function backupRichness(save){if(!save||typeof save!=='object')return 0;const a=k=>Array.isArray(save[k])?save[k].length:0;let n=a('playerTerritories')*2+a('bases')*50+a('structures')*20+a('factoriesM')*25+a('navalFleets')*25+a('defenses')*10+a('radars')*10+a('launchpads')*10+a('marchingAttacks')*12;
 if(save.factories&&typeof save.factories==='object')n+=Object.values(save.factories).reduce((x,v)=>x+safeInt(v),0)*12;if(save.modelInventory&&typeof save.modelInventory==='object')n+=Object.values(save.modelInventory).reduce((x,v)=>x+safeInt(v),0)*5;
 if(save.productionLines&&typeof save.productionLines==='object')n+=Object.keys(save.productionLines).length*5;return n;}async function createSaveBackup(env,u,server,current){if(!current||!current.save_json)return;
 try{const last=await env.DB.prepare('SELECT save_json FROM save_backups WHERE username=? AND server=? ORDER BY id DESC LIMIT 1').bind(u.username,server).first();if(last&&String(last.save_json||'')===String(current.save_json||''))return;
@@ -686,7 +709,7 @@ if(!ins.meta||ins.meta.changes!==1)return err('این کشور گرفته شده
 await env.DB.prepare(`INSERT OR REPLACE INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?)`).bind(u.username,s,JSON.stringify({server:s,gold:KOW_TIMING.initialGold,oil:0,steel:0,food:0,fuel:0,units:{},modelInventory:{},productionLines:{},playerTerritories:[c],structures:[],factoriesM:[],defenses:[],radars:[],launchpads:[],bases:[],armies:[],navalFleets:[]}),now()).run();await env.DB.prepare('UPDATE users SET gold=?,server=?,server_selected=1,countries_count=1,last_seen=? WHERE username=?').bind(KOW_TIMING.initialGold,s,now(),u.username).run();await updateQuestProgress(env,u.username,'daily_conquer',1).catch(e=>console.error('country claim daily quest',e));await updateWeeklyProgress(env,u.username,'w_conquer_3',1).catch(e=>console.error('country claim weekly quest',e));let rr;try{rr=await checkRound(env,s)}catch(e){console.error('country claim round check',e);rr={roundId:r.round_id,roundEnded:false,winner:null}};
 return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEnded||false,winner:rr.winner||null},200,origin);
 }if(path==='/save'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const r=await getRound(env,safeInt(u.server,1));if(r.status==='ended')return json({ok:true,roundEnded:true,winner:r.winner||null,roundId:r.round_id}
-,200,origin);const b=await request.json().catch(()=>({}));const incoming=b.save||{};if(typeof incoming!=='object')return err('ذخیره نامعتبر',400,origin);const s=safeInt(u.server,1);
+,200,origin);const b=await request.json().catch(()=>({}));const incoming=b.save||{};if(!incoming||typeof incoming!=='object'||Array.isArray(incoming))return err('ذخیره نامعتبر',400,origin);if(Object.keys(incoming).length===0)return err('داده ذخیره خالی است؛ اطلاعات قبلی حفظ شد',400,origin);const s=safeInt(u.server,1);
 let result;try{result=await withGameLock(env,`save:${u.username}:${s}`,async()=>{const cur=await getSave(env,u.username,s)||{};const save=mergeSaveForPersistence(cur,incoming);if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
 ,200,origin);}if(path==='/load'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000),save=await getSave(env,u.username,s),recovery=await getSaveRecovery(env,u.username,s,save);
 if(save){const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));}return json({ok:true,save,recovery}
@@ -743,13 +766,13 @@ if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const b=await 
 if(!g)return err('هدیه پیدا نشد یا قبلاً دریافت شده');const lock=await env.DB.prepare('UPDATE gifts SET claimed=1 WHERE id=? AND receiver=? AND claimed=0').bind(id,u.username).run();
 if(!lock.meta||safeInt(lock.meta.changes)!==1)return err('هدیه قبلاً دریافت شده',409,origin);let reward={};try{reward=JSON.parse(g.reward_json||'{}')}catch(_){return err('هدیه خراب است',500,origin)}
 try{await grantReward(env,u.username,reward);}catch(e){await env.DB.prepare('UPDATE gifts SET claimed=0 WHERE id=? AND receiver=? AND claimed=1').bind(id,u.username).run().catch(()=>{}
-);return err('اعطای هدیه ناموفق بود؛ دوباره تلاش کن',500,origin)}return json({ok:true,reward},200,origin);}if(path==='/gift/redeem-code'&&method==='POST'){const u=await authUser(request,env);
-if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const b=await request.json().catch(()=>({})),code=String(b.code||'').trim();const g=await env.DB.prepare('SELECT * FROM gift_codes WHERE code=? AND (expires_at IS NULL OR expires_at>?)').bind(code,now()).first();
-if(!g||safeInt(g.uses)>=safeInt(g.max_uses))return err('کد نامعتبر یا تمام شده');const reward=JSON.parse(g.reward_json||'{}');const led=await env.DB.prepare('INSERT OR IGNORE INTO reward_ledger(username,source_type,source_id,reward_json,created_at) VALUES(?,?,?,?,?)').bind(u.username,'gift_code',code,JSON.stringify(reward),now()).run();
-if(!led.meta||safeInt(led.meta.changes)!==1)return err('این کد قبلاً توسط شما مصرف شده است',409,origin);const lock=await env.DB.prepare('UPDATE gift_codes SET uses=uses+1 WHERE code=? AND uses<?').bind(code,safeInt(g.max_uses)).run();
-if(!lock.meta||safeInt(lock.meta.changes)!==1){await env.DB.prepare('DELETE FROM reward_ledger WHERE username=? AND source_type=? AND source_id=?').bind(u.username,'gift_code',code).run().catch(()=>{}
+);return err('اعطای هدیه ناموفق بود؛ دوباره تلاش کن',500,origin)}return json({ok:true,reward},200,origin);}if(path==='/gift/redeem-code'&&method==='POST'){const u=await authUser(request,env);await ensureGiftCodes(env);
+if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const b=await request.json().catch(()=>({})),code=String(b.code||'').trim().toUpperCase();if(!code)return err('کد هدیه را وارد کن');const g=await env.DB.prepare('SELECT * FROM gift_codes WHERE upper(code)=? AND (expires_at IS NULL OR expires_at>?)').bind(code,now()).first();
+if(!g||safeInt(g.uses)>=safeInt(g.max_uses))return err('کد نامعتبر یا تمام شده');const reward=JSON.parse(g.reward_json||'{}');const led=await env.DB.prepare('INSERT OR IGNORE INTO reward_ledger(username,source_type,source_id,reward_json,created_at) VALUES(?,?,?,?,?)').bind(u.username,'gift_code',g.code,JSON.stringify(reward),now()).run();
+if(!led.meta||safeInt(led.meta.changes)!==1)return err('این کد قبلاً توسط شما مصرف شده است',409,origin);const lock=await env.DB.prepare('UPDATE gift_codes SET uses=uses+1 WHERE code=? AND uses<?').bind(g.code,safeInt(g.max_uses)).run();
+if(!lock.meta||safeInt(lock.meta.changes)!==1){await env.DB.prepare('DELETE FROM reward_ledger WHERE username=? AND source_type=? AND source_id=?').bind(u.username,'gift_code',g.code).run().catch(()=>{}
 );return err('کد همزمان مصرف شد',409,origin);}try{await grantReward(env,u.username,reward);}catch(e){await env.DB.prepare('UPDATE gift_codes SET uses=MAX(uses-1,0) WHERE code=?').bind(code).run().catch(()=>{}
-);await env.DB.prepare('DELETE FROM reward_ledger WHERE username=? AND source_type=? AND source_id=?').bind(u.username,'gift_code',code).run().catch(()=>{});return err('اعطای کد ناموفق بود',500,origin);
+);await env.DB.prepare('DELETE FROM reward_ledger WHERE username=? AND source_type=? AND source_id=?').bind(u.username,'gift_code',g.code).run().catch(()=>{});return err('اعطای کد ناموفق بود',500,origin);
 }return json({ok:true,reward},200,origin);}if(path==='/achievements'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const defaults=[['first_country','اولین قلمرو','یک کشور را در بازی در اختیار بگیر.',JSON.stringify({gold:500}
 ),1],['two_countries','گسترش قلمرو','حداقل دو کشور را در اختیار داشته باش.',JSON.stringify({gold:1000}),2],['first_factory','سازنده','اولین کارخانه‌ات را بساز.',JSON.stringify({gold:700}
 ),1],['score_1000','امتیاز ۱۰۰۰','به ۱۰۰۰ امتیاز برس.',JSON.stringify({gold:1000}),1000],['xp_1000','تجربه‌کار','به ۱۰۰۰ تجربه برس.',JSON.stringify({gold:1000}),1000]];for(const a of defaults)await env.DB.prepare('INSERT OR IGNORE INTO achievements(id,name,description,reward_json,target) VALUES(?,?,?,?,?)').bind(...a).run();
