@@ -394,7 +394,7 @@ for(const k of arrayKeys){
     // while the map is still hydrating. Only a fully hydrated current client may
     // explicitly replace a non-empty structural collection with an empty one.
     const structural=['structures','factoriesM','defenses','radars','launchpads','bases'];
-    if(structural.includes(k) && inc[k].length===0 && Array.isArray(cur[k]) && cur[k].length>0 && inc._kowAllowEmptyStructures!==true) out[k]=cur[k];
+    if(structural.includes(k) && inc[k].length===0 && Array.isArray(cur[k]) && cur[k].length>0 && inc._kowSnapshotComplete!==true) out[k]=cur[k];
     else out[k]=inc[k];
   } else if(Array.isArray(cur[k])) out[k]=cur[k];
 }
@@ -723,12 +723,7 @@ await env.DB.prepare(`INSERT OR REPLACE INTO kow_saves(username,server,save_json
 return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEnded||false,winner:rr.winner||null},200,origin);
 }if(path==='/save'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const r=await getRound(env,safeInt(u.server,1));if(r.status==='ended')return json({ok:true,roundEnded:true,winner:r.winner||null,roundId:r.round_id}
 ,200,origin);const b=await request.json().catch(()=>({}));const incoming=b.save||{};if(!incoming||typeof incoming!=='object'||Array.isArray(incoming))return err('ذخیره نامعتبر',400,origin);if(Object.keys(incoming).length===0)return err('داده ذخیره خالی است؛ اطلاعات قبلی حفظ شد',400,origin);const s=safeInt(u.server,1);
-let result;try{result=await withGameLock(env,`save:${u.username}:${s}`,async()=>{const cur=await getSave(env,u.username,s)||{};const save=mergeSaveForPersistence(cur,incoming);
-// Safety: partial/old clients must not erase known buildings with missing or empty arrays.
-for(const k of ['structures','factoriesM','defenses','radars','launchpads','bases']){
-  if(incoming._kowAllowEmptyStructures!==true && Array.isArray(cur[k]) && cur[k].length>0 && (!Array.isArray(incoming[k]) || incoming[k].length===0)) save[k]=cur[k];
-}
-if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
+let result;try{result=await withGameLock(env,`save:${u.username}:${s}`,async()=>{const cur=await getSave(env,u.username,s)||{};const save=mergeSaveForPersistence(cur,incoming);if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
 ,200,origin);}if(path==='/load'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000);let save=await getSave(env,u.username,s);const recovery=await getSaveRecovery(env,u.username,s,save);
 // Self-heal a fresh/partial current row from the richest valid same-round backup.
 // Earlier code returned `recovery` but the client only consumed `save`, so the
