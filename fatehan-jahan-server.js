@@ -394,7 +394,7 @@ for(const k of arrayKeys){
     // while the map is still hydrating. Only a fully hydrated current client may
     // explicitly replace a non-empty structural collection with an empty one.
     const structural=['structures','factoriesM','defenses','radars','launchpads','bases'];
-    if(structural.includes(k) && inc[k].length===0 && Array.isArray(cur[k]) && cur[k].length>0 && inc._kowSnapshotComplete!==true) out[k]=cur[k];
+    if(structural.includes(k) && inc[k].length===0 && Array.isArray(cur[k]) && cur[k].length>0 && inc._kowAllowEmptyStructures!==true) out[k]=cur[k];
     else out[k]=inc[k];
   } else if(Array.isArray(cur[k])) out[k]=cur[k];
 }
@@ -722,8 +722,20 @@ if(!ins.meta||ins.meta.changes!==1)return err('این کشور گرفته شده
 await env.DB.prepare(`INSERT OR REPLACE INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?)`).bind(u.username,s,JSON.stringify({server:s,gold:KOW_TIMING.initialGold,oil:0,steel:0,food:0,fuel:0,units:{},modelInventory:{},productionLines:{},playerTerritories:[c],structures:[],factoriesM:[],defenses:[],radars:[],launchpads:[],bases:[],armies:[],navalFleets:[]}),now()).run();await env.DB.prepare('UPDATE users SET gold=?,server=?,server_selected=1,countries_count=1,last_seen=? WHERE username=?').bind(KOW_TIMING.initialGold,s,now(),u.username).run();await updateQuestProgress(env,u.username,'daily_conquer',1).catch(e=>console.error('country claim daily quest',e));await updateWeeklyProgress(env,u.username,'w_conquer_3',1).catch(e=>console.error('country claim weekly quest',e));let rr;try{rr=await checkRound(env,s)}catch(e){console.error('country claim round check',e);rr={roundId:r.round_id,roundEnded:false,winner:null}};
 return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEnded||false,winner:rr.winner||null},200,origin);
 }if(path==='/save'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const r=await getRound(env,safeInt(u.server,1));if(r.status==='ended')return json({ok:true,roundEnded:true,winner:r.winner||null,roundId:r.round_id}
-,200,origin);const b=await request.json().catch(()=>({}));const incoming=b.save||{};if(!incoming||typeof incoming!=='object'||Array.isArray(incoming))return err('ذخیره نامعتبر',400,origin);if(Object.keys(incoming).length===0)return err('داده ذخیره خالی است؛ اطلاعات قبلی حفظ شد',400,origin);const s=safeInt(u.server,1);
-let result;try{result=await withGameLock(env,`save:${u.username}:${s}`,async()=>{const cur=await getSave(env,u.username,s)||{};const save=mergeSaveForPersistence(cur,incoming);if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
+,200,origin);const b=await request.json().catch(()=>({}));const incoming=b.save||{};if(!incoming||typeof incoming!=='object'||Array.isArray(incoming))return err('ذخیره نامعتبر',400,origin);if(Object.keys(incoming).length===0)return err('داده ذخیره خالی است؛ اطلاعات قبلی حفظ شد',400,origin);
+const arrayFields=['playerTerritories','structures','factoriesM','defenses','radars','launchpads','bases','armies','navalFleets'];
+for(const k of arrayFields){if(Object.prototype.hasOwnProperty.call(incoming,k)&&!Array.isArray(incoming[k]))return err('فهرست '+k+' نامعتبر است؛ ذخیره قبلی حفظ شد',400,origin);}
+if(incoming._kowAllowEmptyStructures===true&&incoming._kowSnapshotComplete!==true)return err('حذف فهرست ساختمان‌ها بدون snapshot کامل مجاز نیست',400,origin);
+const s=safeInt(u.server,1);
+let result;try{result=await withGameLock(env,`save:${u.username}:${s}`,async()=>{const cur=await getSave(env,u.username,s)||{};const save=mergeSaveForPersistence(cur,incoming);
+// Safety: partial/old clients must not erase known buildings with missing or empty arrays.
+for(const k of ['structures','factoriesM','defenses','radars','launchpads','bases']){
+  // Empty client arrays are not proof that the player owns nothing. Preserve existing
+  // server state unless a complete, explicitly-authorized structural replacement is sent.
+  const canReplaceWithEmpty = incoming._kowSnapshotComplete===true && incoming._kowAllowEmptyStructures===true;
+  if(!canReplaceWithEmpty && Array.isArray(cur[k]) && cur[k].length>0 && (!Array.isArray(incoming[k]) || incoming[k].length===0)) save[k]=cur[k];
+}
+if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
 ,200,origin);}if(path==='/load'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000);let save=await getSave(env,u.username,s);const recovery=await getSaveRecovery(env,u.username,s,save);
 // Self-heal a fresh/partial current row from the richest valid same-round backup.
 // Earlier code returned `recovery` but the client only consumed `save`, so the
