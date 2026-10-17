@@ -436,8 +436,8 @@ l=await env.DB.prepare('SELECT * FROM factory_lines WHERE username=? AND server=
 }async function upsertModelQty(env,username,server,model,delta){const r=await env.DB.prepare('SELECT quantity FROM model_inventory WHERE username=? AND server=? AND model=?').bind(username,server,model).first();
 const q=Math.max(0,safeInt(r&&r.quantity)+delta);await env.DB.prepare(`INSERT INTO model_inventory(username,server,model,quantity) VALUES(?,?,?,?) ON CONFLICT(username,server,model) DO UPDATE SET quantity=excluded.quantity`).bind(username,server,model,q).run();
 return q;}const FACTORY_RULES={ground:new Set(['soldier','tank','helicopter','air_defense']),air:new Set(['jet','drone','recon_drone']),missile:new Set(['missile','air_defense']),naval:new Set(['warship','carrier','ship','troopship','oil_tanker','naval_air_defense'])}
-;function factoryCategory(key,siteType='factory'){const k=String(key||'').toLowerCase();if(siteType==='shipyard'||/(shipyard|naval|dock|کشتی)/i.test(k))return 'naval';if(/missile|موشک|launch/i.test(k))return 'missile';
-if(/air|fighter|airport|جنگنده|هوایی/i.test(k))return 'air';return 'ground';}function factoryModelAllowed(key,model,siteType='factory'){const meta=MODEL_META[model];if(!meta)return false;
+;function factoryCategory(key,siteType='factory'){const k=String(key||'').toLowerCase();if(siteType==='shipyard'||/(shipyard|naval|dock|کشتی|ship|carrier|oil_tanker)/i.test(k))return 'naval';if(/missile|موشک|launch/i.test(k))return 'missile';
+if(/(^|_)(jet|drone)(_|$)|air|fighter|airport|recon|جنگنده|هوایی/i.test(k))return 'air';return 'ground';}function factoryModelAllowed(key,model,siteType='factory'){const meta=MODEL_META[model];if(!meta)return false;
 return FACTORY_RULES[factoryCategory(key,siteType)]?.has(meta.baseUnit)||false;}async function handleFactoryState(request,env,u){const server=clamp(safeInt(u.server,1),1,1000);const lines=(await env.DB.prepare('SELECT factory_key,model,sample_count,queued,produced,last_tick FROM factory_lines WHERE username=? AND server=?').bind(u.username,server).all()).results||[];
 return json({ok:true,lines,inventory:await modelInventory(env,u.username,server),models:MODEL_META,server});}async function handleFactoryTransfer(request,env,u){const b=await request.json().catch(()=>({}
 )),server=clamp(safeInt(u.server,1),1,1000),key=String(b.factoryKey||b.key||'').slice(0,40),model=String(b.model||'');if(!MODEL_META[model])return err('مدل نامعتبر');return await withGameLock(env,`factory:${u.username}:${server}:${key}`,async()=>{const site=await env.DB.prepare("SELECT site_type,integrity FROM game_sites WHERE server=? AND owner_username=? AND site_key=? LIMIT 1").bind(server,u.username,key).first();
@@ -491,15 +491,37 @@ if(!candidates.length)return{detected:true,intercepted:false,usedModel:null,rada
 const q=Math.max(0,safeInt(r&&r.quantity)+delta);await env.DB.prepare(`INSERT INTO site_equipment(site_id,model,quantity,installed,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(site_id,model) DO UPDATE SET quantity=excluded.quantity,installed=excluded.installed,updated_at=excluded.updated_at`).bind(id,model,q,installed,now()).run();
 return q;}const SITE_BUILD_COST={industry:{steel:500,oil:250},factory:{steel:350,oil:150},shipyard:{steel:900,oil:450},warehouse:{steel:250,oil:100},steel_warehouse:{steel:250,oil:100}
 ,food_warehouse:{steel:250,oil:100},base:{steel:600,oil:300},radar:{steel:450,oil:200},oil_tank:{steel:350,oil:150},port:{steel:700,oil:350},airport:{steel:650,oil:300},airbase:{steel:600,oil:280}
-};async function createSite(env,u,b,bootstrap=false){const s=clamp(safeInt(u.server,1),1,1000),c=String(b.countryKey||b.country||'').trim(),k=String(b.siteKey||b.key||b.type||'').slice(0,60),type=String(b.siteType||b.type||'base').slice(0,30);
+};const SITE_BUILD_GOLD_COST={industry:300,factory:500,shipyard:2000,warehouse:500,steel_warehouse:500,food_warehouse:500,base:400,radar:400,oil_tank:500,port:1500,airport:700,airbase:600};const FACTORY_BUILD_GOLD_COST={soldier:300,tank:500,helicopter:600,jet:700,drone:400,missile:900,ship:1000,carrier:2000,oil_tanker:1600};async function createSite(env,u,b,bootstrap=false){const s=clamp(safeInt(u.server,1),1,1000),c=String(b.countryKey||b.country||'').trim(),k=String(b.siteKey||b.key||b.type||'').slice(0,60),type=String(b.siteType||b.type||'base').slice(0,30);
 if(!validCountry(c)||!SITE_TYPES.has(type)||!k)return null;const o=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,c).first();if(!o||o.username!==u.username)return null;
 let x=await env.DB.prepare('SELECT * FROM game_sites WHERE server=? AND country_key=? AND owner_username=? AND site_key=?').bind(s,c,u.username,k).first();if(x)return x;if(type==='factory'){const n=await env.DB.prepare("SELECT COUNT(*) c FROM game_sites WHERE server=? AND country_key=? AND owner_username=? AND site_type='factory'").bind(s,c,u.username).first();if(safeInt(n&&n.c)>=KOW_TIMING.factoryMaxPerCountry)return null;}if(['oil_tank','steel_warehouse','food_warehouse'].includes(type)){const limits={oil_tank:KOW_TIMING.oilTankMaxPerCountry,steel_warehouse:KOW_TIMING.steelWarehouseMaxPerCountry,food_warehouse:KOW_TIMING.foodWarehouseMaxPerCountry}
 ;const n=await env.DB.prepare('SELECT COUNT(*) c FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_type=?').bind(s,u.username,c,type).first();if(safeInt(n&&n.c)>=limits[type])return null;
-}const cost=SITE_BUILD_COST[type]||{steel:300,oil:150};let charged=false;if(!bootstrap){const cas=await mutateSaveCAS(env,u.username,s,save=>{if(safeInt(save.steel)<cost.steel||safeInt(save.oil)<cost.oil)return{error:'مواد ساخت تأسیسات کافی نیست'}
-;save.steel-=cost.steel;save.oil-=cost.oil;});if(!cas.ok)return null;charged=true;}try{const r=await env.DB.prepare('INSERT INTO game_sites(server,country_key,owner_username,site_key,site_type,lat,lng,integrity,max_integrity,repair_cost_json,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(s,c,u.username,k,type,Number.isFinite(Number(b.lat))?Number(b.lat):null,Number.isFinite(Number(b.lng))?Number(b.lng):null,100,100,JSON.stringify(b.repairCost||cost),now()).run();
+}const cost={gold:Math.max(0,safeInt(type==='factory'?(FACTORY_BUILD_GOLD_COST[k]||SITE_BUILD_GOLD_COST.factory):SITE_BUILD_GOLD_COST[type],500))};let charged=false;if(!bootstrap){const cas=await mutateSaveCAS(env,u.username,s,save=>{if(safeInt(save.gold)<cost.gold)return{error:'طلای کافی برای ساخت تأسیسات ندارید'};save.gold-=cost.gold;save.coins=save.gold;});if(!cas.ok)return null;charged=true;}try{const r=await env.DB.prepare('INSERT INTO game_sites(server,country_key,owner_username,site_key,site_type,lat,lng,integrity,max_integrity,repair_cost_json,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(s,c,u.username,k,type,Number.isFinite(Number(b.lat))?Number(b.lat):null,Number.isFinite(Number(b.lng))?Number(b.lng):null,100,100,JSON.stringify(b.repairCost||SITE_BUILD_COST[type]||cost),now()).run();
 x=await getSite(env,r.meta.last_row_id);const resourceSpec={oil_tank:['oil',KOW_TIMING.oilTankCapacity],steel_warehouse:['steel',KOW_TIMING.steelWarehouseCapacity],food_warehouse:['food',KOW_TIMING.foodWarehouseCapacity]}
 [type];if(resourceSpec)await env.DB.prepare('INSERT OR IGNORE INTO site_resources(site_id,resource,quantity,capacity,updated_at) VALUES(?,?,?,?,?)').bind(x.id,resourceSpec[0],0,resourceSpec[1],now()).run();
-return x;}catch(e){if(charged)await mutateSaveCAS(env,u.username,s,save=>{save.steel=safeInt(save.steel)+cost.steel;save.oil=safeInt(save.oil)+cost.oil;});return null;}}async function defenseResolve(env,server,user,power,distance,targetCountry=null,targetSite=null,attackModel='missile'){const rows=targetCountry?(await env.DB.prepare("SELECT * FROM defense_launchers WHERE username=? AND server=? AND country_key=? AND active=1 AND quantity>0 AND status='ready' AND ammo>0").bind(user,server,targetCountry).all()).results||[]:[];
+if(charged){const latest=await getSave(env,u.username,s);if(latest)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(latest.gold),now(),u.username).run();}return x;}catch(e){if(charged){await mutateSaveCAS(env,u.username,s,save=>{save.gold=safeInt(save.gold)+cost.gold;save.coins=save.gold;});const latest=await getSave(env,u.username,s);if(latest)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(latest.gold),now(),u.username).run();}return null;}}
+async function syncSavedOperationalSites(env,u,server,save){
+  if(!save||typeof save!=='object')return{structures:0,factories:0,bases:0};
+  const s=clamp(safeInt(server,1),1,1000),stats={structures:0,factories:0,bases:0};
+  const validCoord=(x,y)=>Number.isFinite(Number(x))&&Number(x)>=-90&&Number(x)<=90&&Number.isFinite(Number(y))&&Number(y)>=-180&&Number(y)<=180;
+  for(const st of (Array.isArray(save.structures)?save.structures:[])){
+    if(!st||!st.sid||!['refinery','steel_factory','food_factory'].includes(String(st.type||''))||!validCoord(st.lat,st.lng))continue;
+    const site=await createSite(env,u,{siteType:'industry',siteKey:String(st.sid),countryKey:String(st.countryKey||''),lat:Number(st.lat),lng:Number(st.lng)},true);
+    if(site)stats.structures++;
+  }
+  for(const fm of (Array.isArray(save.factoriesM)?save.factoriesM:[])){
+    if(!fm||!fm.key||!validCoord(fm.lat,fm.lng))continue;
+    const site=await createSite(env,u,{siteType:'factory',siteKey:String(fm.key),countryKey:String(fm.countryKey||''),lat:Number(fm.lat),lng:Number(fm.lng)},true);
+    if(site&&String(site.site_type)==='factory'){await ensureFactoryLine(env,u,s,String(fm.key));stats.factories++;}
+  }
+  for(const b of (Array.isArray(save.bases)?save.bases:[])){
+    const key=String(b&& (b.id||('base_'+String(b.type||b.baseType||'base')+'_'+String(b.countryKey||b.country_key||'')+'_'+String(Math.round(Number(b.lat)*1000))+'_'+String(Math.round(Number(b.lng)*1000))))||'');
+    if(!b||!key||!validCoord(b.lat,b.lng))continue;
+    const site=await createSite(env,u,{siteType:'base',siteKey:key,countryKey:String(b.countryKey||b.country_key||''),lat:Number(b.lat),lng:Number(b.lng)},true);
+    if(site)stats.bases++;
+  }
+  return stats;
+}
+async function defenseResolve(env,server,user,power,distance,targetCountry=null,targetSite=null,attackModel='missile'){const rows=targetCountry?(await env.DB.prepare("SELECT * FROM defense_launchers WHERE username=? AND server=? AND country_key=? AND active=1 AND quantity>0 AND status='ready' AND ammo>0").bind(user,server,targetCountry).all()).results||[]:[];
 let total=0,intercepted=false,used=null;for(const d of rows){let inRange=Number(d.range_km||0)>=distance;if(targetSite&&Number.isFinite(Number(targetSite.lat))&&Number.isFinite(Number(targetSite.lng)))inRange=Number.isFinite(Number(d.lat))&&Number.isFinite(Number(d.lng))&&distKm(targetSite,{lat:Number(d.lat),lng:Number(d.lng)}
 )<=Number(d.range_km||0);if(!inRange)continue;const q=Math.max(1,safeInt(d.quantity));total+=Number(d.defense_power||0)*q;if(defenseCanStopAir(d.defense_model,attackModel,power)){const chance=defenseInterceptChance(Number(d.defense_power||0),power);
 if(Math.random()<chance){intercepted=true;used=d;break;}}}if(intercepted&&used&&!await consumeDefenseLauncherShot(env,server,user,used))intercepted=false;if(intercepted&&used){const slat=Number(used.lat),slng=Number(used.lng),tlat=Number(targetSite?.lat),tlng=Number(targetSite?.lng);
@@ -724,11 +746,23 @@ return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEn
 }if(path==='/game/action'&&method==='POST'){
 const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
 const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,1000),kind=String(b.action||''),nowAt=now();
+if(['build_structure','build_factory','build_base'].includes(kind)){
+ const country=String(b.countryKey||'');
+ const owner=country?await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first():null;
+ if(!owner||owner.username!==u.username)return err('کشور متعلق به شما نیست یا مالکیت آن در سرور تأیید نشد',403,origin);
+ if(!Number.isFinite(Number(b.lat))||Number(b.lat)<-90||Number(b.lat)>90||!Number.isFinite(Number(b.lng))||Number(b.lng)<-180||Number(b.lng)>180)return err('مختصات ساخت نامعتبر است',400,origin);
+ if(kind==='build_factory'){
+  const count=await env.DB.prepare("SELECT COUNT(*) AS c FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_type='factory'").bind(s,u.username,country).first();
+  const key=String(b.factoryKey||'');
+  const existing=await env.DB.prepare('SELECT id FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_key=?').bind(s,u.username,country,key).first();
+  if(!existing&&safeInt(count&&count.c)>=KOW_TIMING.factoryMaxPerCountry)return err('در هر کشور حداکثر ۳ کارخانه عملیاتی مجاز است',409,origin);
+ }
+}
 const prices={scout_drone:200,troopship:250,warship:350,radar:400,launchpad:500,defense:640};
 const structures={refinery:{gold:300,produces:'oil',amount:5,interval:600},steel_factory:{gold:350,produces:'steel',amount:10,interval:1200},food_factory:{gold:50,produces:'food',amount:7,interval:5}};
 const r=await mutateSaveCAS(env,u.username,s,async save=>{
  save.units=save.units&&typeof save.units==='object'?save.units:{};save.militaryInventory=save.militaryInventory&&typeof save.militaryInventory==='object'?save.militaryInventory:{};
- for(const k of ['structures','defenses','radars','launchpads','bases','armies','marchingAttacks'])if(!Array.isArray(save[k]))save[k]=[];
+ for(const k of ['structures','factoriesM','defenses','radars','launchpads','bases','armies','marchingAttacks'])if(!Array.isArray(save[k]))save[k]=[];
  const own=(key)=>Array.isArray(save.playerTerritories)&&save.playerTerritories.includes(String(key||''));
  const coord=(x)=>Number.isFinite(Number(x))&&Number(x)>=-90&&Number(x)<=90;
  const lng=(x)=>Number.isFinite(Number(x))&&Number(x)>=-180&&Number(x)<=180;
@@ -742,6 +776,19 @@ const r=await mutateSaveCAS(env,u.username,s,async save=>{
   if(safeInt(save.gold)<p.gold)return{error:'طلای کافی ندارید'};
   if(save.structures.filter(x=>x&&x.countryKey===country&&x.type===type).length>=10)return{error:'سقف ساخت این ساختمان پر شده است'};
   save.gold-=p.gold;save.coins=save.gold;save.structures.push({sid:'srv_struct_'+nowAt+'_'+Math.floor(Math.random()*100000),type,countryKey:country,lat:Number(b.lat),lng:Number(b.lng),isBuilding:true,startTime:nowAt,lastProduction:nowAt});
+ } else if(kind==='build_factory'){
+  const key=String(b.factoryKey||''),country=String(b.countryKey||'');
+  const cost=FACTORY_BUILD_GOLD_COST[key];
+  if(!cost)return{error:'نوع کارخانه نامعتبر است'};
+  if(!own(country))return{error:'کشور متعلق به شما نیست'};
+  if(!coord(b.lat)||!lng(b.lng))return{error:'مختصات کارخانه نامعتبر است'};
+  save.factories=save.factories&&typeof save.factories==='object'?save.factories:{};
+  if(safeInt(save.factories[key])>0||save.factoriesM.some(x=>x&&String(x.key)===key))return{error:'این کارخانه قبلاً ساخته شده است'};
+  const count=save.factoriesM.filter(x=>x&&String(x.countryKey||'')===country).length;
+  if(count>=3)return{error:'در هر کشور حداکثر ۳ کارخانه عملیاتی مجاز است'};
+  if(safeInt(save.gold)<cost)return{error:'طلای کافی ندارید'};
+  save.gold-=cost;save.coins=save.gold;save.factories[key]=1;
+  save.factoriesM.push({key,countryKey:country,lat:Number(b.lat),lng:Number(b.lng)});
  } else if(['place_defense','place_radar','place_launchpad'].includes(kind)){
   const country=String(b.countryKey||'');if(!own(country))return{error:'کشور متعلق به شما نیست'};if(!coord(b.lat)||!lng(b.lng))return{error:'مختصات نامعتبر است'};
   const map={place_defense:['defense','defenses'],place_radar:['radar','radars'],place_launchpad:['launchpad','launchpads']};const [item,key]=map[kind];
@@ -770,7 +817,7 @@ const r=await mutateSaveCAS(env,u.username,s,async save=>{
   for(const [model,n] of Object.entries(chosen))save.units[model]-=n;
   save.marchingAttacks.push({id:'srv_attack_'+nowAt+'_'+Math.floor(Math.random()*100000),attackType,targetCountry:target,units:chosen,status:'outbound',createdAt:nowAt});
  } else if(kind==='build_base'){
-  const country=String(b.countryKey||''),type=String(b.baseType||'');const cost={land:200,air:300,naval:400}[type];if(!cost)return{error:'نوع پایگاه نامعتبر است'};if(!own(country))return{error:'کشور متعلق به شما نیست'};if(!coord(b.lat)||!lng(b.lng))return{error:'مختصات نامعتبر است'};if(safeInt(save.gold)<cost)return{error:'طلای کافی ندارید'};if(save.bases.filter(x=>x&&x.countryKey===country&&x.type===type).length>=2)return{error:'حداکثر دو پایگاه از این نوع مجاز است'};save.gold-=cost;save.coins=save.gold;save.bases.push({id:'srv_base_'+nowAt+'_'+Math.floor(Math.random()*100000),countryKey:country,type,name:String(b.name||'').slice(0,80),lat:Number(b.lat),lng:Number(b.lng)});
+  const country=String(b.countryKey||''),type=String(b.baseType||'');const cost={land:200,air:300,naval:400}[type];if(!cost)return{error:'نوع پایگاه نامعتبر است'};if(!own(country))return{error:'کشور متعلق به شما نیست'};if(!coord(b.lat)||!lng(b.lng))return{error:'مختصات نامعتبر است'};if(type==='naval'&&!likelyWaterPoint(Number(b.lat),Number(b.lng)))return{error:'پایگاه دریایی باید کنار یا روی آب ساخته شود'};if(safeInt(save.gold)<cost)return{error:'طلای کافی ندارید'};if(save.bases.filter(x=>x&&x.countryKey===country&&x.type===type).length>=2)return{error:'حداکثر دو پایگاه از این نوع مجاز است'};save.gold-=cost;save.coins=save.gold;save.bases.push({id:'srv_base_'+nowAt+'_'+Math.floor(Math.random()*100000),countryKey:country,type,name:String(b.name||'').slice(0,80),lat:Number(b.lat),lng:Number(b.lng)});
  } else if(kind==='missile_fire'){
   const target=String(b.targetCountry||''),count=clamp(safeInt(b.count,1),1,10);if(!target||own(target))return{error:'هدف موشکی نامعتبر است'};const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE country_key=? AND server=?').bind(target,s).first();if(!owner||owner.username===u.username)return{error:'هدف باید کشور متعلق به بازیکن دشمن باشد'};const ready=save.launchpads.filter(p=>p&&safeInt(p.missiles)>0);if(ready.length<count)return{error:'تعداد موشک آماده کافی نیست'};for(let i=0;i<count;i++)ready[i].missiles--;save.marchingAttacks.push({id:'srv_missile_'+nowAt+'_'+Math.floor(Math.random()*100000),attackType:'missile',targetCountry:target,count,status:'outbound',createdAt:nowAt});
  } else if(kind==='collect_production'){
@@ -780,6 +827,43 @@ const r=await mutateSaveCAS(env,u.username,s,async save=>{
  save.server=s;save.updatedAt=nowAt;return{ok:true,action:kind};
 });
 if(!r.ok)return err(r.error||'عملیات رد شد',409,origin);const save=r.save;
+if(['build_structure','build_factory','build_base'].includes(kind)){
+  try{
+    const synced=await syncSavedOperationalSites(env,u,s,save);
+    if(kind==='build_factory'){
+      const key=String(b.factoryKey||'');
+      const site=await env.DB.prepare('SELECT id,site_type FROM game_sites WHERE server=? AND owner_username=? AND site_key=? LIMIT 1').bind(s,u.username,key).first();
+      if(!site||String(site.site_type)!=='factory')throw new Error('ساختمان کارخانه در جدول عملیاتی ثبت نشد');
+      await ensureFactoryLine(env,u,s,key);
+    }
+    if(kind==='build_structure'){
+      const st=(Array.isArray(save.structures)?save.structures:[]).slice().reverse().find(x=>x&&x.type===String(b.type||'')&&x.countryKey===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
+      if(st){const site=await env.DB.prepare('SELECT id FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_key=? LIMIT 1').bind(s,u.username,String(st.countryKey),String(st.sid)).first();if(!site)throw new Error('ساختمان در جدول عملیاتی ثبت نشد');}
+    }
+  }catch(e){
+    console.error('KOW operational build sync failed',kind,u.username,e);
+    // Compensate the save if the operational record could not be committed.
+    try{
+      if(kind==='build_structure'){
+        const st=(Array.isArray(save.structures)?save.structures:[]).slice().reverse().find(x=>x&&x.type===String(b.type||'')&&x.countryKey===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
+        const price={refinery:300,steel_factory:350,food_factory:50}[String(b.type||'')]||0;
+        if(st){await mutateSaveCAS(env,u.username,s,sv=>{sv.structures=(Array.isArray(sv.structures)?sv.structures:[]).filter(x=>String(x&&x.sid)!==String(st.sid));sv.gold=safeInt(sv.gold)+price;sv.coins=sv.gold;});await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_key=?').bind(s,u.username,String(st.countryKey),String(st.sid)).run();}
+      }else if(kind==='build_factory'){
+        const key=String(b.factoryKey||''),price=FACTORY_BUILD_GOLD_COST[key]||0;
+        await mutateSaveCAS(env,u.username,s,sv=>{sv.factoriesM=(Array.isArray(sv.factoriesM)?sv.factoriesM:[]).filter(x=>String(x&&x.key)!==key);sv.factories=sv.factories&&typeof sv.factories==='object'?sv.factories:{};sv.factories[key]=0;sv.gold=safeInt(sv.gold)+price;sv.coins=sv.gold;});
+        await env.DB.prepare('DELETE FROM factory_lines WHERE username=? AND server=? AND factory_key=?').bind(u.username,s,key).run();
+        await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND site_type='factory' AND updated_at>=?').bind(s,u.username,key,nowAt-5000).run();
+      }else if(kind==='build_base'){
+        const type=String(b.baseType||''),price={land:200,air:300,naval:400}[type]||0;
+        const latest=await getSave(env,u.username,s)||{};const base=(Array.isArray(latest.bases)?latest.bases:[]).slice().reverse().find(x=>x&&String(x.type||'')===type&&String(x.countryKey||'')===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
+        if(base){await mutateSaveCAS(env,u.username,s,sv=>{sv.bases=(Array.isArray(sv.bases)?sv.bases:[]).filter(x=>String(x&&x.id)!==String(base.id));sv.gold=safeInt(sv.gold)+price;sv.coins=sv.gold;});await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND updated_at>=?').bind(s,u.username,String(base.id),nowAt-5000).run();}
+      }
+      const rolled=await getSave(env,u.username,s);if(rolled&&rolled.gold!==undefined)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(rolled.gold),now(),u.username).run();
+    }catch(rollbackError){console.error('KOW build compensation failed',kind,u.username,rollbackError);}
+    // Never tell the client that a build succeeded when its operational record failed.
+    return err('تأیید نهایی ساخت در سرور انجام نشد؛ ساخت لغو شد. اتصال را بررسی کنید و دوباره تلاش کنید.',503,origin);
+  }
+}
 if(save.gold!==undefined)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(Math.max(0,safeInt(save.gold)),nowAt,u.username).run();
 return json({ok:true,action:kind,save,server:s,serverTime:nowAt},200,origin);
 }if(path==='/save'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const r=await getRound(env,safeInt(u.server,1));if(r.status==='ended')return json({ok:true,roundEnded:true,winner:r.winner||null,roundId:r.round_id}
@@ -823,7 +907,7 @@ if(recovery&&hasOwned(recovery)){
     console.warn('KOW save auto-recovered from backup',u.username,'server',s,'round',activeRound);
   }
 }
-if(save){const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();if(account){save.gold=Math.max(0,safeInt(account.gold));save.coins=save.gold;save.xp=Math.max(0,safeInt(account.xp,save.xp||0));}else save.coins=Math.max(0,safeInt(save.gold));const meta=await env.DB.prepare('SELECT state_version,last_snapshot_at FROM player_state_meta WHERE username=? AND server=?').bind(u.username,s).first().catch(()=>null);if(meta){save.stateVersion=safeInt(meta.state_version);save.lastSnapshotAt=safeInt(meta.last_snapshot_at);}}
+if(save){try{await syncSavedOperationalSites(env,u,s,save);}catch(e){console.warn('KOW operational save sync deferred',u.username,s,e);}const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();if(account){save.gold=Math.max(0,safeInt(account.gold));save.coins=save.gold;save.xp=Math.max(0,safeInt(account.xp,save.xp||0));}else save.coins=Math.max(0,safeInt(save.gold));const meta=await env.DB.prepare('SELECT state_version,last_snapshot_at FROM player_state_meta WHERE username=? AND server=?').bind(u.username,s).first().catch(()=>null);if(meta){save.stateVersion=safeInt(meta.state_version);save.lastSnapshotAt=safeInt(meta.last_snapshot_at);}}
 return json({ok:true,save,recovery,recovered,inventory:save&&save.modelInventory&&typeof save.modelInventory==='object'?save.modelInventory:{}},200,origin);}if(path==='/stats'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const x=await env.DB.prepare('SELECT score,countries_count,level,xp,server,gold FROM users WHERE username=?').bind(u.username).first();
 return json({ok:true,score:safeInt(x&&x.score),countries:safeInt(x&&x.countries_count),level:safeInt(x&&x.level,1),xp:safeInt(x&&x.xp),gold:Math.max(0,safeInt(x&&x.gold)),coins:Math.max(0,safeInt(x&&x.gold)),server:safeInt(x&&x.server,1)},200,origin);}if(path==='/leaderboard'&&method==='GET'){const cutoff=now()-60000;
 const rows=(await env.DB.prepare('SELECT username,score,countries_count,level,last_seen,CASE WHEN last_seen>=? THEN 1 ELSE 0 END AS online FROM users ORDER BY score DESC,countries_count DESC,username ASC LIMIT 100').bind(cutoff).all()).results||[];
@@ -1070,7 +1154,7 @@ await env.DB.prepare('INSERT INTO reports(reporter,target,reason,details,status,
 ,200,origin);}if(path==='/clan/rank'&&method==='GET'){const rows=(await env.DB.prepare(`SELECT a.id,a.name,a.leader_username,(SELECT COUNT(*) FROM alliance_members WHERE alliance_id=a.id) members,(SELECT COALESCE(SUM(score),0) FROM scores s JOIN alliance_members am ON am.username=s.username WHERE am.alliance_id=a.id) total_score FROM alliances a ORDER BY total_score DESC LIMIT 50`).all()).results||[];
 return json({ok:true,clans:rows},200,origin);}if(path==='/push/register'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
 const b=await request.json().catch(()=>({})),endpoint=String(b.endpoint||'browser').slice(0,500),ua=String(b.userAgent||'').slice(0,200);await env.DB.prepare(`INSERT INTO push_tokens(username,endpoint,user_agent,created_at) VALUES(?,?,?,?) ON CONFLICT(username,endpoint) DO UPDATE SET user_agent=excluded.user_agent,created_at=excluded.created_at`).bind(u.username,endpoint,ua,now()).run();
-return json({ok:true},200,origin);}if(path==='/factory/site/create'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const sb=await blockIfSanctioned(env,safeInt(u.server,1),u.username);if(sb)return sb;const b=await request.json().catch(()=>({})),country=String(b.countryKey||b.country||'').trim(),key=String(b.siteKey||b.key||'').slice(0,60);if(!validCountry(country)||!key||!Number.isFinite(Number(b.lat))||!Number.isFinite(Number(b.lng)))return err('کشور یا محل کارخانه نامعتبر است',400,origin);const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(safeInt(u.server,1),country).first();if(!owner||owner.username!==u.username)return err('فقط در کشور خودت می‌توانی کارخانه بسازی',403,origin);const site=await createSite(env,u,{...b,server:u.server,countryKey:country,siteType:'factory',siteKey:key},true);if(!site)return err('ثبت کارخانه انجام نشد؛ احتمالاً محدودیت کارخانه یا کلید تکراری است',409,origin);return json({ok:true,site},200,origin);
+return json({ok:true},200,origin);}if(path==='/factory/site/create'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const sb=await blockIfSanctioned(env,safeInt(u.server,1),u.username);if(sb)return sb;const b=await request.json().catch(()=>({})),country=String(b.countryKey||b.country||'').trim(),key=String(b.siteKey||b.key||'').slice(0,60);if(!validCountry(country)||!key||!Number.isFinite(Number(b.lat))||!Number.isFinite(Number(b.lng)))return err('کشور یا محل کارخانه نامعتبر است',400,origin);const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(safeInt(u.server,1),country).first();if(!owner||owner.username!==u.username)return err('فقط در کشور خودت می‌توانی کارخانه بسازی',403,origin);const existing=await env.DB.prepare('SELECT * FROM game_sites WHERE server=? AND country_key=? AND owner_username=? AND site_key=?').bind(safeInt(u.server,1),country,u.username,key).first();if(existing){await ensureFactoryLine(env,u,safeInt(u.server,1),key);return json({ok:true,site:existing,already:true},200,origin);}const price=FACTORY_BUILD_GOLD_COST[key];if(!price)return err('نوع کارخانه نامعتبر است',400,origin);const debited=await mutateSaveCAS(env,u.username,safeInt(u.server,1),save=>{if(safeInt(save.gold)<price)return{error:'طلای کافی برای ساخت کارخانه ندارید'};save.gold-=price;save.coins=save.gold;});if(!debited.ok)return err(debited.error||'ساخت کارخانه تأیید نشد',409,origin);const site=await createSite(env,u,{...b,server:u.server,countryKey:country,siteType:'factory',siteKey:key},true);if(!site){await mutateSaveCAS(env,u.username,safeInt(u.server,1),save=>{save.gold=safeInt(save.gold)+price;save.coins=save.gold;});const restored=await getSave(env,u.username,safeInt(u.server,1));if(restored)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(restored.gold),now(),u.username).run();return err('ثبت کارخانه در سرور ناموفق بود؛ طلا برگردانده شد',409,origin);}await ensureFactoryLine(env,u,safeInt(u.server,1),key);const latest=await getSave(env,u.username,safeInt(u.server,1));if(latest)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(latest.gold),now(),u.username).run();return json({ok:true,site,save:latest},200,origin);
 }if(path==='/site/upsert'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const b=await request.json().catch(()=>({}
 )),site=await createSite(env,u,b);if(!site)return err('ساختمان نامعتبر یا کشور متعلق به شما نیست');if(Array.isArray(b.equipment))for(const x of b.equipment){const model=String(x.model||'');
 if(!MODEL_META[model])continue;if(DEFENSE_MODULE_MODELS.has(model))return err('ماژول پدافند مستقیم روی تأسیسات نصب نمی‌شود؛ آن را در انبار نگه دار و از /defense/launcher/load روی لانچر نصب کن',400,origin);
@@ -1231,15 +1315,14 @@ const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE serv
 if(type==='naval'&&!likelyWaterPoint(lat,lng))return err('پایگاه دریایی باید کنار/روی آب ساخته شود');const save=await getSave(env,u.username,s)||{server:s,gold:10000,oil:1000,steel:1000,food:1000,fuel:1000,units:{}
 };save.bases=Array.isArray(save.bases)?save.bases:[];const exists=save.bases.find(x=>String(x.type||x.baseType||'').toLowerCase()===type&&String(x.countryKey||x.country_key||'')===country&&Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lng))&&distKm({lat,lng}
 ,{lat:Number(x.lat),lng:Number(x.lng)})<5);if(exists)return json({ok:true,base:exists,already:true},200,origin);const same=save.bases.filter(x=>String(x.type||x.baseType||'').toLowerCase()===type&&String(x.countryKey||x.country_key||'')===country);
-if(same.length>=2)return err('هر کشور حداکثر ۲ پایگاه از این نوع دارد');const baseCost=type==='naval'?{steel:700,oil:350}:type==='air'?{steel:650,oil:300}:{steel:600,oil:300};const result=await withGameLock(env,`build:${u.username}:${s}`,async()=>{const fresh=await getSave(env,u.username,s)||save;
+if(same.length>=2)return err('هر کشور حداکثر ۲ پایگاه از این نوع دارد');const baseCost={gold:type==='naval'?400:type==='air'?300:200};const result=await withGameLock(env,`build:${u.username}:${s}`,async()=>{const fresh=await getSave(env,u.username,s)||save;
 fresh.bases=Array.isArray(fresh.bases)?fresh.bases:[];const dup=fresh.bases.find(x=>String(x.type||x.baseType||'').toLowerCase()===type&&String(x.countryKey||x.country_key||'')===country&&Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lng))&&distKm({lat,lng}
 ,{lat:Number(x.lat),lng:Number(x.lng)})<5);if(dup)return{base:dup,already:true};const sameFresh=fresh.bases.filter(x=>String(x.type||x.baseType||'').toLowerCase()===type&&String(x.countryKey||x.country_key||'')===country);
 if(sameFresh.length>=2)throw new Error('BASE_LIMIT');const base={id:String(b.id||('base_'+now()+'_'+Math.floor(Math.random()*100000))),name:String(b.name||('پایگاه '+type)),type,countryKey:country,lat,lng,created_at:now(),buildCost:baseCost}
 ;const cas=await mutateSaveCAS(env,u.username,s,st=>{st.bases=Array.isArray(st.bases)?st.bases:[];const dup2=st.bases.find(x=>String(x.type||x.baseType||'').toLowerCase()===type&&String(x.countryKey||x.country_key||'')===country&&Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lng))&&distKm({lat,lng}
 ,{lat:Number(x.lat),lng:Number(x.lng)})<5);if(dup2)return{error:'BASE_EXISTS'};const same2=st.bases.filter(x=>String(x.type||x.baseType||'').toLowerCase()===type&&String(x.countryKey||x.country_key||'')===country);
-if(same2 .length>=2)return{error:'BASE_LIMIT'};if(safeInt(st.steel)<baseCost.steel||safeInt(st.oil)<baseCost.oil)return{error:'مواد ساخت پایگاه کافی نیست'};st.steel-=baseCost.steel;
-st.oil-=baseCost.oil;st.bases.push(base);});if(!cas.ok){if(cas.error==='BASE_EXISTS')return{base:base,already:false,conflict:true};throw new Error(cas.error||'BUILD_COST');}return{base,already:false}
-;});return json({ok:true,...result,cost:baseCost},200,origin);}if(path==='/naval/debug'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
+if(same2 .length>=2)return{error:'BASE_LIMIT'};if(safeInt(st.gold)<baseCost.gold)return{error:'طلای کافی برای ساخت پایگاه ندارید'};st.gold-=baseCost.gold;st.coins=st.gold;st.bases.push(base);});if(!cas.ok){if(cas.error==='BASE_EXISTS')return{base:base,already:false,conflict:true};throw new Error(cas.error||'BUILD_COST');}return{base,already:false}
+;});if(result&&result.base){const finalSave=await getSave(env,u.username,s)||save;await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(Math.max(0,safeInt(finalSave.gold)),now(),u.username).run();try{await syncSavedOperationalSites(env,u,s,finalSave);}catch(e){console.warn('base operational sync deferred',e);}}return json({ok:true,...result,cost:baseCost},200,origin);}if(path==='/naval/debug'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
 const s=safeInt(u.server,1);try{await withGameLock(env,`server-tick:${s}`,async()=>await navalAdvanceAndResolve(env,s));}catch(e){if(String(e&&e.message)==='LOCK_BUSY')return err('پردازش بازی همزمان است؛ دوباره تلاش کن',409,origin);
 throw e;}const rows=(await env.DB.prepare(`SELECT id,type,count,lat,lng,target_lat,target_lng,status,route_index,route_distance_km,progress_km,move_started_at,move_eta,move_duration_ms,home_base_id,last_update FROM naval_fleets WHERE server=? AND username=? ORDER BY created_at DESC`).bind(s,u.username).all()).results||[];
 return json({ok:true,server:s,now:now(),fleets:rows},200,origin);}if(path==='/naval/fleets'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
@@ -1297,7 +1380,7 @@ const trucks=(await env.DB.prepare('SELECT * FROM logistics_trucks WHERE server=
 return json({ok:true,sites,transfers,trucks,straits,limits:{truckCount:KOW_TIMING.truckCount,truckCapacity:KOW_TIMING.truckCapacity,oilTankCapacity:KOW_TIMING.oilTankCapacity,oilTankMaxPerCountry:KOW_TIMING.oilTankMaxPerCountry,factoryCapacity:KOW_TIMING.factoryCapacity}
 },200,origin);}if(path==='/logistics/site/create'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const sb=await blockIfSanctioned(env,safeInt(u.server,1),u.username);
 if(sb)return sb;const b=await request.json().catch(()=>({})),type=String(b.siteType||'warehouse'),key=String(b.siteKey||type+'_'+now()).slice(0,60);if(!['warehouse','oil_tank','steel_warehouse','food_warehouse','port','factory','shipyard','industry'].includes(type))return err('نوع تأسیسات نامعتبر');
-const site=await createSite(env,u,{...b,siteType:type,siteKey:key});if(!site)return err('ساختمان نامعتبر، کشور متعلق به شما نیست، یا منابع کافی نیست',409,origin);return json({ok:true,site}
+const site=await createSite(env,u,{...b,siteType:type,siteKey:key});if(!site)return err('ساختمان نامعتبر است، کشور متعلق به شما نیست، محدودیت ساخت پر شده یا طلای کافی ندارید',409,origin);return json({ok:true,site}
 ,200,origin);}if(path==='/logistics/transfer'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const sb=await blockIfSanctioned(env,safeInt(u.server,1),u.username);
 if(sb)return sb;const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,1000),src=safeInt(b.sourceSiteId),dst=safeInt(b.targetSiteId),model=String(b.model||''),meta=MODEL_META[model];if(!meta)return err('مدل/محموله نامعتبر');if(['oil','steel','food','fuel','resource','material'].includes(String(meta.baseUnit||'')))return err('کامیون فقط تجهیزات و سرباز حمل می‌کند؛ مواد اولیه ممنوع است');const bu=String(meta.baseUnit||'');const truckCap=bu==='soldier'?400:(['jet','helicopter','drone'].includes(bu)?2:(['warship','carrier','ship','troopship','oil_tanker','naval_air_defense'].includes(bu)?1:3));const q=clamp(safeInt(b.quantity,1),1,truckCap);
 const a=await getSite(env,src),z=await getSite(env,dst);if(!a||!z||a.owner_username!==u.username||z.owner_username!==u.username)return err('مبدأ یا مقصد نامعتبر');if(a.server!==s||z.server!==s)return err('سرور نامعتبر');
