@@ -1,4 +1,4 @@
-const VERSION='50.6.0-authoritative-persistence';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
+const VERSION='50.6.1-authoritative-persistence';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
 navalLossPct:0.35,landPrepMs:60000,fighterPrepMs:20000,helicopterPrepMs:20000,dronePrepMs:15000,factoryGroundMs:15*60*1000,factoryAirMs:25*60*1000,factoryMissileMs:30*60*1000,factoryNavalMs:60*60*1000,factoryCapacity:25,truckCount:5,truckCapacity:2,truckMinPerKmMs:5*60*1000,oilTankCapacity:500,oilTankMaxPerCountry:3,steelWarehouseCapacity:500,steelWarehouseMaxPerCountry:3,foodWarehouseCapacity:500,foodWarehouseMaxPerCountry:3,steelProductionIntervalMs:20*60*1000,steelProductionAmount:10,foodProductionIntervalMs:5*60*1000,foodProductionAmount:4,tankerCapacity:1000,tankerType:'oil_tanker',tankerLossPctOnDestruction:1,oilBasePrice:5,oilMinPrice:2,oilMaxPrice:40,oilTickMs:60000,groundBattleDurationMs:12*60*60*1000,
 airPatrolFuelPerMinute:2,airInterceptFuelCost:25,reconSpeedKmPerMin:5000/(2.5*60),reconMissionFuel:20,reconDetectionRadiusKm:200,serverCount:5,serverCountryCapacity:30,factoryMaxPerCountry:3,escortProtectionMs:20*60*1000,initialGold:1000,strategicStateTickMs:15*60*1000,tradeExpiryMs:24*60*60*1000}
 ;const SESSION_DAYS=KOW_TIMING.sessionDays;const ONLINE_MS=KOW_TIMING.onlineMs;const NAVAL_SPEED_KM_S=KOW_TIMING.navalSpeedKmPerSec;function navalDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);return Math.max(KOW_TIMING.navalMinTravelMs,Math.min(KOW_TIMING.navalMaxTravelMs,Math.round(d/Math.max(.001,NAVAL_SPEED_KM_S)*1000)));}function airFuelCapacity(model){const m=String(model||'');if(m==='fighter_f16')return 30;if(m==='fighter_su35')return 50;if(m==='fighter_f22')return 80;return 40;}function strategicDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);
@@ -513,7 +513,14 @@ async function syncSavedOperationalSites(env,u,server,save){
     if(!item||!key||!validCoord(item.lat,item.lng))return null;
     const country=String(countryKey||'');
     const site=await createSite(env,u,{siteType,siteKey:String(key),countryKey:country,lat:Number(item.lat),lng:Number(item.lng)},true);
-    if(site){await persistSitePayload(env,site,gameType,item);stats[category]=(stats[category]||0)+1;return site;}
+    if(site){
+      // Existing site keys represent the same asset. A move must update its
+      // coordinates instead of returning the stale row from createSite().
+      await env.DB.prepare('UPDATE game_sites SET lat=?,lng=?,game_type=?,payload_json=?,updated_at=? WHERE id=? AND server=? AND owner_username=? AND country_key=? AND site_key=?')
+        .bind(Number(item.lat),Number(item.lng),String(gameType||''),JSON.stringify(item||{}),now(),site.id,s,u.username,country,String(key)).run();
+      const refreshed=await getSite(env,site.id)||site;
+      stats[category]=(stats[category]||0)+1;return refreshed;
+    }
     const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first();
     // A legacy or over-limit item must not block a valid save from loading. The source save remains intact.
     if(owner&&owner.username===u.username)console.warn('KOW operational site sync deferred',u.username,s,siteType,key);
@@ -539,14 +546,74 @@ async function syncSavedOperationalSites(env,u,server,save){
     ['launchpads','launchpad','launchpad','launchpad','launchpads']
   ]){
     const list=Array.isArray(save[arr])?save[arr]:[];
+    const usedKeys=new Set();
     for(let i=0;i<list.length;i++){
       const item=list[i];if(!item)continue;
       const country=String(item.countryKey||item.country_key||'');
+      // Older clients omitted IDs from snapshots. Reattach each item to the
+      // nearest existing operational row in that country so moving it updates
+      // one record instead of creating a free duplicate at every old position.
+      let needsRebind=!item.id;
+      if(item.id){
+        const exact=await env.DB.prepare('SELECT id FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_type=? AND site_key=?').bind(s,u.username,country,siteType,String(item.id)).first();
+        // Client-generated marker IDs are not operational identities. Rebind
+        // them to the existing server asset before persisting a moved position.
+        if(!exact&&!String(item.id).startsWith('saved_'+prefix+'_'))needsRebind=true;
+      }
+      if(needsRebind){
+        const candidates=(await env.DB.prepare('SELECT id,site_key,lat,lng FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_type=? ORDER BY updated_at DESC,id DESC').bind(s,u.username,country,siteType).all()).results||[];
+        let best=null,bestD=Infinity;
+        for(const row of candidates){if(usedKeys.has(String(row.site_key||'')))continue;const dlat=Number(row.lat)-Number(item.lat),dlng=Number(row.lng)-Number(item.lng),d=dlat*dlat+dlng*dlng;if(Number.isFinite(d)&&d<bestD){best=row;bestD=d;}}
+        if(best&&best.site_key)item.id=String(best.site_key);
+      }
       const key=String(item.id||('saved_'+prefix+'_'+keyPart(country)+'_'+String(Math.round(Number(item.lat)*10000))+'_'+String(Math.round(Number(item.lng)*10000))+'_'+i));
+      item.id=key;usedKeys.add(key);
       await syncOne(item,siteType,key,gameType,country,category);
     }
   }
   return stats;
+}
+async function normalizeLegacyMovedAssets(env,u,server,save){
+  const s=clamp(safeInt(server,1),1,1000);
+  for(const [arr,siteType,prefix] of [
+    ['defenses','defense','defense'],['radars','radar','radar'],['launchpads','launchpad','launchpad']
+  ]){
+    if(!Array.isArray(save[arr]))continue;
+    const list=save[arr];
+    const canonical=list.filter(x=>x&&String(x.id||'').startsWith('srv_'+prefix+'_'));
+    const legacy=list.filter(x=>x&&String(x.id||'').startsWith('saved_'+prefix+'_'));
+    if(!canonical.length||!legacy.length)continue;
+    const rows=(await env.DB.prepare('SELECT site_key,updated_at,lat,lng FROM game_sites WHERE server=? AND owner_username=? AND site_type=?').bind(s,u.username,siteType).all()).results||[];
+    const rowByKey=new Map(rows.map(x=>[String(x.site_key||''),x]));
+    const canonicalRows=new Map(canonical.map(x=>[String(x.id),rowByKey.get(String(x.id))||null]));
+    const latestByCanonical=new Map();
+    // Old frontend versions dropped IDs from snapshots. Each moved asset then
+    // produced a `saved_*` site beside its original `srv_*` row. The original
+    // server ID is the identity; the newest operational row carries its latest
+    // coordinates. Merge that newest position into the original and discard
+    // only the duplicate JSON entries (no D1 rows are deleted here).
+    for(let i=0;i<legacy.length;i++){
+      const item=legacy[i];let target=null,best=Infinity;
+      for(const candidate of canonical){
+        const dlat=Number(candidate.lat)-Number(item.lat),dlng=Number(candidate.lng)-Number(item.lng);
+        const d=(Number.isFinite(dlat)&&Number.isFinite(dlng))?dlat*dlat+dlng*dlng:Infinity;
+        if(d<best){best=d;target=candidate;}
+      }
+      if(!target)continue;
+      const targetId=String(target.id),legacyId=String(item.id),targetRow=canonicalRows.get(targetId),legacyRow=rowByKey.get(legacyId);
+      const targetAt=Number(targetRow&&targetRow.updated_at||0),legacyAt=Number(legacyRow&&legacyRow.updated_at||0);
+      const prior=latestByCanonical.get(targetId);
+      const priorAt=Number(prior&&prior.updatedAt||0);
+      if(legacyAt>=Math.max(targetAt,priorAt)){
+        const copy=Object.assign({},item);delete copy.id;
+        Object.assign(target,copy);target.id=targetId;
+        latestByCanonical.set(targetId,{updatedAt:legacyAt,index:i});
+      }
+    }
+    const legacyIds=new Set(legacy);
+    save[arr]=list.filter(x=>!legacyIds.has(x));
+  }
+  return save;
 }
 async function hydrateSaveFromOperationalTables(env,u,server,source){
   const s=clamp(safeInt(server,1),1,1000),save=source&&typeof source==='object'?JSON.parse(JSON.stringify(source)):{};
@@ -599,6 +666,11 @@ async function hydrateSaveFromOperationalTables(env,u,server,source){
       const arr=type==='defense'?save.defenses:type==='radar'?save.radars:save.launchpads;
       const old=existingBy(arr,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));
       if(!alive){removeMatch(arr,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));continue;}
+      // The save array is authoritative when it already contains assets of this
+      // type in this country. An unmatched operational row is usually a legacy
+      // pre-move coordinate; do not append it as a second free unit.
+      const hasCountryAsset=arr.some(x=>x&&String(x.countryKey||x.country_key||'')===country);
+      if(!old&&hasCountryAsset)continue;
       const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
       if(type==='launchpad'&&item.missiles==null)item.missiles=0;
       if(coordOk(item)&&!old)arr.push(item);else if(old&&payload)Object.assign(old,item);
@@ -1016,6 +1088,7 @@ if(!save){
 }
 let syncWarning=null;
 if(save){
+  try{save=await normalizeLegacyMovedAssets(env,u,s,save);}catch(e){console.warn('KOW legacy moved-asset normalization deferred',u.username,s,e);}
   try{await syncSavedOperationalSites(env,u,s,save);}catch(e){syncWarning=String(e&&e.message||e);console.error('KOW operational site sync deferred; returning persisted save',u.username,s,e);}
   try{save=await hydrateSaveFromOperationalTables(env,u,s,save);}catch(e){console.error('KOW operational hydration failed; retaining persisted snapshot',u.username,s,e);}
   const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();
