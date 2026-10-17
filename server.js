@@ -505,19 +505,25 @@ async function syncSavedOperationalSites(env,u,server,save){
   const validCoord=(x,y)=>Number.isFinite(Number(x))&&Number(x)>=-90&&Number(x)<=90&&Number.isFinite(Number(y))&&Number(y)>=-180&&Number(y)<=180;
   for(const st of (Array.isArray(save.structures)?save.structures:[])){
     if(!st||!st.sid||!['refinery','steel_factory','food_factory'].includes(String(st.type||''))||!validCoord(st.lat,st.lng))continue;
-    const site=await createSite(env,u,{siteType:'industry',siteKey:String(st.sid),countryKey:String(st.countryKey||''),lat:Number(st.lat),lng:Number(st.lng)},true);
+    const country=String(st.countryKey||'');
+    const site=await createSite(env,u,{siteType:'industry',siteKey:String(st.sid),countryKey:country,lat:Number(st.lat),lng:Number(st.lng)},true);
     if(site)stats.structures++;
+    else { const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first(); if(owner&&owner.username===u.username)throw new Error('ساختمان ذخیره‌شده در game_sites ثبت نشد: '+String(st.sid)); }
   }
   for(const fm of (Array.isArray(save.factoriesM)?save.factoriesM:[])){
     if(!fm||!fm.key||!validCoord(fm.lat,fm.lng))continue;
-    const site=await createSite(env,u,{siteType:'factory',siteKey:String(fm.key),countryKey:String(fm.countryKey||''),lat:Number(fm.lat),lng:Number(fm.lng)},true);
+    const country=String(fm.countryKey||'');
+    const site=await createSite(env,u,{siteType:'factory',siteKey:String(fm.key),countryKey:country,lat:Number(fm.lat),lng:Number(fm.lng)},true);
     if(site&&String(site.site_type)==='factory'){await ensureFactoryLine(env,u,s,String(fm.key));stats.factories++;}
+    else { const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first(); if(owner&&owner.username===u.username)throw new Error('کارخانه ذخیره‌شده در game_sites ثبت نشد: '+String(fm.key)); }
   }
   for(const b of (Array.isArray(save.bases)?save.bases:[])){
     const key=String(b&& (b.id||('base_'+String(b.type||b.baseType||'base')+'_'+String(b.countryKey||b.country_key||'')+'_'+String(Math.round(Number(b.lat)*1000))+'_'+String(Math.round(Number(b.lng)*1000))))||'');
     if(!b||!key||!validCoord(b.lat,b.lng))continue;
-    const site=await createSite(env,u,{siteType:'base',siteKey:key,countryKey:String(b.countryKey||b.country_key||''),lat:Number(b.lat),lng:Number(b.lng)},true);
+    const country=String(b.countryKey||b.country_key||'');
+    const site=await createSite(env,u,{siteType:'base',siteKey:key,countryKey:country,lat:Number(b.lat),lng:Number(b.lng)},true);
     if(site)stats.bases++;
+    else { const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first(); if(owner&&owner.username===u.username)throw new Error('پایگاه ذخیره‌شده در game_sites ثبت نشد: '+key); }
   }
   return stats;
 }
@@ -852,7 +858,7 @@ if(['build_structure','build_factory','build_base'].includes(kind)){
         const key=String(b.factoryKey||''),price=FACTORY_BUILD_GOLD_COST[key]||0;
         await mutateSaveCAS(env,u.username,s,sv=>{sv.factoriesM=(Array.isArray(sv.factoriesM)?sv.factoriesM:[]).filter(x=>String(x&&x.key)!==key);sv.factories=sv.factories&&typeof sv.factories==='object'?sv.factories:{};sv.factories[key]=0;sv.gold=safeInt(sv.gold)+price;sv.coins=sv.gold;});
         await env.DB.prepare('DELETE FROM factory_lines WHERE username=? AND server=? AND factory_key=?').bind(u.username,s,key).run();
-        await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND site_type='factory' AND updated_at>=?').bind(s,u.username,key,nowAt-5000).run();
+        await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND country_key=? AND site_type='factory' AND updated_at>=?').bind(s,u.username,key,String(b.countryKey||''),nowAt-5000).run();
       }else if(kind==='build_base'){
         const type=String(b.baseType||''),price={land:200,air:300,naval:400}[type]||0;
         const latest=await getSave(env,u.username,s)||{};const base=(Array.isArray(latest.bases)?latest.bases:[]).slice().reverse().find(x=>x&&String(x.type||'')===type&&String(x.countryKey||'')===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
@@ -907,7 +913,7 @@ if(recovery&&hasOwned(recovery)){
     console.warn('KOW save auto-recovered from backup',u.username,'server',s,'round',activeRound);
   }
 }
-if(save){try{await syncSavedOperationalSites(env,u,s,save);}catch(e){console.warn('KOW operational save sync deferred',u.username,s,e);}const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();if(account){save.gold=Math.max(0,safeInt(account.gold));save.coins=save.gold;save.xp=Math.max(0,safeInt(account.xp,save.xp||0));}else save.coins=Math.max(0,safeInt(save.gold));const meta=await env.DB.prepare('SELECT state_version,last_snapshot_at FROM player_state_meta WHERE username=? AND server=?').bind(u.username,s).first().catch(()=>null);if(meta){save.stateVersion=safeInt(meta.state_version);save.lastSnapshotAt=safeInt(meta.last_snapshot_at);}}
+if(save){try{await syncSavedOperationalSites(env,u,s,save);}catch(e){console.error('KOW operational save sync failed; refusing partial load',u.username,s,e);return err('خطا در همگام‌سازی ذخیره روی سرور؛ ورود انجام نشد. اتصال را بررسی کن و دوباره تلاش کن.',503,origin);}const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();if(account){save.gold=Math.max(0,safeInt(account.gold));save.coins=save.gold;save.xp=Math.max(0,safeInt(account.xp,save.xp||0));}else save.coins=Math.max(0,safeInt(save.gold));const meta=await env.DB.prepare('SELECT state_version,last_snapshot_at FROM player_state_meta WHERE username=? AND server=?').bind(u.username,s).first().catch(()=>null);if(meta){save.stateVersion=safeInt(meta.state_version);save.lastSnapshotAt=safeInt(meta.last_snapshot_at);}}
 return json({ok:true,save,recovery,recovered,inventory:save&&save.modelInventory&&typeof save.modelInventory==='object'?save.modelInventory:{}},200,origin);}if(path==='/stats'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const x=await env.DB.prepare('SELECT score,countries_count,level,xp,server,gold FROM users WHERE username=?').bind(u.username).first();
 return json({ok:true,score:safeInt(x&&x.score),countries:safeInt(x&&x.countries_count),level:safeInt(x&&x.level,1),xp:safeInt(x&&x.xp),gold:Math.max(0,safeInt(x&&x.gold)),coins:Math.max(0,safeInt(x&&x.gold)),server:safeInt(x&&x.server,1)},200,origin);}if(path==='/leaderboard'&&method==='GET'){const cutoff=now()-60000;
 const rows=(await env.DB.prepare('SELECT username,score,countries_count,level,last_seen,CASE WHEN last_seen>=? THEN 1 ELSE 0 END AS online FROM users ORDER BY score DESC,countries_count DESC,username ASC LIMIT 100').bind(cutoff).all()).results||[];
