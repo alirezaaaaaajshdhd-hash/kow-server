@@ -1,4 +1,4 @@
-const VERSION='50.5.0-kow-online-only';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
+const VERSION='50.6.0-authoritative-persistence';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
 navalLossPct:0.35,landPrepMs:60000,fighterPrepMs:20000,helicopterPrepMs:20000,dronePrepMs:15000,factoryGroundMs:15*60*1000,factoryAirMs:25*60*1000,factoryMissileMs:30*60*1000,factoryNavalMs:60*60*1000,factoryCapacity:25,truckCount:5,truckCapacity:2,truckMinPerKmMs:5*60*1000,oilTankCapacity:500,oilTankMaxPerCountry:3,steelWarehouseCapacity:500,steelWarehouseMaxPerCountry:3,foodWarehouseCapacity:500,foodWarehouseMaxPerCountry:3,steelProductionIntervalMs:20*60*1000,steelProductionAmount:10,foodProductionIntervalMs:5*60*1000,foodProductionAmount:4,tankerCapacity:1000,tankerType:'oil_tanker',tankerLossPctOnDestruction:1,oilBasePrice:5,oilMinPrice:2,oilMaxPrice:40,oilTickMs:60000,groundBattleDurationMs:12*60*60*1000,
 airPatrolFuelPerMinute:2,airInterceptFuelCost:25,reconSpeedKmPerMin:5000/(2.5*60),reconMissionFuel:20,reconDetectionRadiusKm:200,serverCount:5,serverCountryCapacity:30,factoryMaxPerCountry:3,escortProtectionMs:20*60*1000,initialGold:1000,strategicStateTickMs:15*60*1000,tradeExpiryMs:24*60*60*1000}
 ;const SESSION_DAYS=KOW_TIMING.sessionDays;const ONLINE_MS=KOW_TIMING.onlineMs;const NAVAL_SPEED_KM_S=KOW_TIMING.navalSpeedKmPerSec;function navalDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);return Math.max(KOW_TIMING.navalMinTravelMs,Math.min(KOW_TIMING.navalMaxTravelMs,Math.round(d/Math.max(.001,NAVAL_SPEED_KM_S)*1000)));}function airFuelCapacity(model){const m=String(model||'');if(m==='fighter_f16')return 30;if(m==='fighter_su35')return 50;if(m==='fighter_f22')return 80;return 40;}function strategicDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);
@@ -90,6 +90,7 @@ await addColumnIfMissing(db,'users','password_hash','TEXT');await addColumnIfMis
 await addColumnIfMissing(db,'combat_events','return_eta','INTEGER');await addColumnIfMissing(db,'combat_events','launch_cooldown_key','TEXT');await addColumnIfMissing(db,'naval_fleets','last_missile_launch_at','INTEGER DEFAULT 0');
 await addColumnIfMissing(db,'naval_fleets','last_fighter_launch_at','INTEGER DEFAULT 0');await db.prepare("UPDATE users SET server_selected=1 WHERE countries_count>0 AND COALESCE(server_selected,0)=0").run().catch(()=>{}
 );await addColumnIfMissing(db,'users','is_admin','INTEGER DEFAULT 0');await addColumnIfMissing(db,'users','gold','INTEGER DEFAULT 0');await addColumnIfMissing(db,'country_owners','captured_at','INTEGER');
+await addColumnIfMissing(db,'game_sites','game_type','TEXT');await addColumnIfMissing(db,'game_sites','payload_json','TEXT');
 await addColumnIfMissing(db,'chat_messages','created_at','INTEGER');await addColumnIfMissing(db,'scores','updated_at','INTEGER');await addColumnIfMissing(db,'battles','attack_power','REAL DEFAULT 0');
 for(const[c,t]of[['model','TEXT'],['cargo_json','TEXT'],['fuel','REAL DEFAULT 0'],['food','REAL DEFAULT 0'],['route_json','TEXT'],['route_index','INTEGER DEFAULT 0'],['origin_lat','REAL'],['origin_lng','REAL'],['route_distance_km','REAL DEFAULT 0'],['move_started_at','INTEGER'],['move_eta','INTEGER'],['move_duration_ms','INTEGER DEFAULT 0'],['progress_km','REAL DEFAULT 0'],['home_base_id','TEXT'],['escort_fleet_id','TEXT'],['cargo_barrels','REAL DEFAULT 0'],['mission_target_username','TEXT'],['mission_target_site_id','INTEGER'],['mission_status',"TEXT DEFAULT 'none'"],['integrity','REAL DEFAULT 100'],['max_integrity','REAL DEFAULT 100'],['fuel_capacity','REAL DEFAULT 250'],['fuel_initialized','INTEGER DEFAULT 0'],['repair_until','INTEGER'],['repair_kind','TEXT']])await addColumnIfMissing(db,'naval_fleets',c,t);
 await db.prepare(`CREATE TABLE IF NOT EXISTS naval_service_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, server INTEGER NOT NULL, username TEXT NOT NULL, fleet_id TEXT NOT NULL, port_site_id INTEGER NOT NULL, action TEXT NOT NULL, amount REAL DEFAULT 0, started_at INTEGER NOT NULL, eta INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'active', target_username TEXT, target_site_id INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`).run();
@@ -165,7 +166,7 @@ async function ensureCanonicalPersistenceSchema(env){
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_game_event_ledger_player ON game_event_ledger(username,server,created_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS coin_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, server INTEGER NOT NULL, delta INTEGER NOT NULL, balance_after INTEGER NOT NULL, reason TEXT NOT NULL, reference_id TEXT, created_at INTEGER NOT NULL)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_coin_ledger_player ON coin_ledger(username,server,created_at)`)
-  ]);})();
+  ]);await addColumnIfMissing(db,'game_sites','game_type','TEXT');await addColumnIfMissing(db,'game_sites','payload_json','TEXT');})();
   try{return await __kowCanonicalSchemaPromise;}catch(e){__kowCanonicalSchemaPromise=null;throw e;}
 }
 async function ensureGiftCodes(env){
@@ -484,7 +485,7 @@ let detectedBy=null;for(const r of radarRows){const siteOk=!r.site_id||(Number(r
 const defs=(await env.DB.prepare("SELECT * FROM defense_launchers WHERE server=? AND username=? AND active=1 AND quantity>0 AND status='ready' AND ammo>0").bind(server,detectedBy.username).all()).results||[];
 const candidates=defs.filter(d=>Number.isFinite(Number(d.lat))&&Number.isFinite(Number(d.lng))&&distKm(pos,{lat:Number(d.lat),lng:Number(d.lng)})<=Number(d.range_km||0)).sort((a,b)=>defenseTier(b.defense_model)-defenseTier(a.defense_model));
 if(!candidates.length)return{detected:true,intercepted:false,usedModel:null,radar:detectedBy.model};const used=candidates[0];const canStop=defenseCanStopAir(used.defense_model,airModel,power);const chance=canStop?defenseInterceptChance(Number(used.defense_power||0),power):0;const intercepted=Math.random()<chance;if(!(await consumeDefenseLauncherShot(env,server,detectedBy.username,used)))return{detected:true,intercepted:false,usedModel:null,radar:detectedBy.model};const defenseResult=intercepted?'intercepted':'missed';await recordDefenseProjectile(env,server,detectedBy.username,attacker,sourceType==='combat'?sourceId:null,used.defense_model,used.lat,used.lng,pos.lat,pos.lng,defenseResult);if(intercepted)await addNotification(env,attacker,'🛡️ هواگرد رهگیری شد',`مدل ${airModel} توسط ${used.defense_model} رهگیری شد.`);return{detected:true,intercepted,usedModel:intercepted?used.defense_model:null,defender:detectedBy.username,radar:detectedBy.model,launcherId:used.id,defenseFired:true,defenseResult};
-;}const SITE_TYPES=new Set(['industry','factory','shipyard','warehouse','steel_warehouse','food_warehouse','base','radar','oil_tank','port','airport','airbase']);const ATTACK_META={missile:{warhead:1.25,duration:30000}
+;}const SITE_TYPES=new Set(['industry','factory','shipyard','warehouse','steel_warehouse','food_warehouse','base','radar','defense','launchpad','oil_tank','port','airport','airbase']);const ATTACK_META={missile:{warhead:1.25,duration:30000}
 ,fighter:{warhead:.75,duration:45000},helicopter:{warhead:.65,duration:50000},drone:{warhead:.55,duration:60000},land:{warhead:.35,duration:KOW_TIMING.groundBattleDurationMs}};async function getSite(env,id){return env.DB.prepare('SELECT * FROM game_sites WHERE id=?').bind(safeInt(id)).first();
 }async function siteEquipment(env,id){return(await env.DB.prepare('SELECT model,quantity,installed FROM site_equipment WHERE site_id=? AND quantity>0').bind(id).all()).results||[];
 }async function upsertSiteEquipment(env,id,model,delta,installed=1){if(!MODEL_META[model])return 0;const r=await env.DB.prepare('SELECT quantity FROM site_equipment WHERE site_id=? AND model=?').bind(id,model).first();
@@ -492,41 +493,132 @@ const q=Math.max(0,safeInt(r&&r.quantity)+delta);await env.DB.prepare(`INSERT IN
 return q;}const SITE_BUILD_COST={industry:{steel:500,oil:250},factory:{steel:350,oil:150},shipyard:{steel:900,oil:450},warehouse:{steel:250,oil:100},steel_warehouse:{steel:250,oil:100}
 ,food_warehouse:{steel:250,oil:100},base:{steel:600,oil:300},radar:{steel:450,oil:200},oil_tank:{steel:350,oil:150},port:{steel:700,oil:350},airport:{steel:650,oil:300},airbase:{steel:600,oil:280}
 };const SITE_BUILD_GOLD_COST={industry:300,factory:500,shipyard:2000,warehouse:500,steel_warehouse:500,food_warehouse:500,base:400,radar:400,oil_tank:500,port:1500,airport:700,airbase:600};const FACTORY_BUILD_GOLD_COST={soldier:300,tank:500,helicopter:600,jet:700,drone:400,missile:900,ship:1000,carrier:2000,oil_tanker:1600};async function createSite(env,u,b,bootstrap=false){const s=clamp(safeInt(u.server,1),1,1000),c=String(b.countryKey||b.country||'').trim(),k=String(b.siteKey||b.key||b.type||'').slice(0,60),type=String(b.siteType||b.type||'base').slice(0,30);
-if(!validCountry(c)||!SITE_TYPES.has(type)||!k)return null;const o=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,c).first();if(!o||o.username!==u.username)return null;
+if(!validCountry(c)||!SITE_TYPES.has(type)||!k||(!bootstrap&&['defense','launchpad'].includes(type)))return null;const o=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,c).first();if(!o||o.username!==u.username)return null;
 let x=await env.DB.prepare('SELECT * FROM game_sites WHERE server=? AND country_key=? AND owner_username=? AND site_key=?').bind(s,c,u.username,k).first();if(x)return x;if(type==='factory'){const n=await env.DB.prepare("SELECT COUNT(*) c FROM game_sites WHERE server=? AND country_key=? AND owner_username=? AND site_type='factory'").bind(s,c,u.username).first();if(safeInt(n&&n.c)>=KOW_TIMING.factoryMaxPerCountry)return null;}if(['oil_tank','steel_warehouse','food_warehouse'].includes(type)){const limits={oil_tank:KOW_TIMING.oilTankMaxPerCountry,steel_warehouse:KOW_TIMING.steelWarehouseMaxPerCountry,food_warehouse:KOW_TIMING.foodWarehouseMaxPerCountry}
 ;const n=await env.DB.prepare('SELECT COUNT(*) c FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_type=?').bind(s,u.username,c,type).first();if(safeInt(n&&n.c)>=limits[type])return null;
 }const cost={gold:Math.max(0,safeInt(type==='factory'?(FACTORY_BUILD_GOLD_COST[k]||SITE_BUILD_GOLD_COST.factory):SITE_BUILD_GOLD_COST[type],500))};let charged=false;if(!bootstrap){const cas=await mutateSaveCAS(env,u.username,s,save=>{if(safeInt(save.gold)<cost.gold)return{error:'طلای کافی برای ساخت تأسیسات ندارید'};save.gold-=cost.gold;save.coins=save.gold;});if(!cas.ok)return null;charged=true;}try{const r=await env.DB.prepare('INSERT INTO game_sites(server,country_key,owner_username,site_key,site_type,lat,lng,integrity,max_integrity,repair_cost_json,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(s,c,u.username,k,type,Number.isFinite(Number(b.lat))?Number(b.lat):null,Number.isFinite(Number(b.lng))?Number(b.lng):null,100,100,JSON.stringify(b.repairCost||SITE_BUILD_COST[type]||cost),now()).run();
 x=await getSite(env,r.meta.last_row_id);const resourceSpec={oil_tank:['oil',KOW_TIMING.oilTankCapacity],steel_warehouse:['steel',KOW_TIMING.steelWarehouseCapacity],food_warehouse:['food',KOW_TIMING.foodWarehouseCapacity]}
 [type];if(resourceSpec)await env.DB.prepare('INSERT OR IGNORE INTO site_resources(site_id,resource,quantity,capacity,updated_at) VALUES(?,?,?,?,?)').bind(x.id,resourceSpec[0],0,resourceSpec[1],now()).run();
 if(charged){const latest=await getSave(env,u.username,s);if(latest)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(latest.gold),now(),u.username).run();}return x;}catch(e){if(charged){await mutateSaveCAS(env,u.username,s,save=>{save.gold=safeInt(save.gold)+cost.gold;save.coins=save.gold;});const latest=await getSave(env,u.username,s);if(latest)await env.DB.prepare('UPDATE users SET gold=?,last_seen=? WHERE username=?').bind(safeInt(latest.gold),now(),u.username).run();}return null;}}
+async function persistSitePayload(env,site,gameType,payload){
+  if(!site||!site.id)return;
+  const type=String(gameType||''),json=JSON.stringify(payload||{});await env.DB.prepare("UPDATE game_sites SET game_type=?,payload_json=? WHERE id=? AND (COALESCE(game_type,'')<>? OR COALESCE(payload_json,'')<>?)").bind(type,json,site.id,type,json).run();
+}
 async function syncSavedOperationalSites(env,u,server,save){
-  if(!save||typeof save!=='object')return{structures:0,factories:0,bases:0};
-  const s=clamp(safeInt(server,1),1,1000),stats={structures:0,factories:0,bases:0};
+  if(!save||typeof save!=='object')return{structures:0,factories:0,bases:0,defenses:0,radars:0,launchpads:0};
+  const s=clamp(safeInt(server,1),1,1000),stats={structures:0,factories:0,bases:0,defenses:0,radars:0,launchpads:0};
   const validCoord=(x,y)=>Number.isFinite(Number(x))&&Number(x)>=-90&&Number(x)<=90&&Number.isFinite(Number(y))&&Number(y)>=-180&&Number(y)<=180;
+  const keyPart=x=>String(x||'').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,35);
+  const syncOne=async(item,siteType,key,gameType,countryKey,category)=>{
+    if(!item||!key||!validCoord(item.lat,item.lng))return null;
+    const country=String(countryKey||'');
+    const site=await createSite(env,u,{siteType,siteKey:String(key),countryKey:country,lat:Number(item.lat),lng:Number(item.lng)},true);
+    if(site){await persistSitePayload(env,site,gameType,item);stats[category]=(stats[category]||0)+1;return site;}
+    const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first();
+    // A legacy or over-limit item must not block a valid save from loading. The source save remains intact.
+    if(owner&&owner.username===u.username)console.warn('KOW operational site sync deferred',u.username,s,siteType,key);
+    return null;
+  };
   for(const st of (Array.isArray(save.structures)?save.structures:[])){
-    if(!st||!st.sid||!['refinery','steel_factory','food_factory'].includes(String(st.type||''))||!validCoord(st.lat,st.lng))continue;
-    const country=String(st.countryKey||'');
-    const site=await createSite(env,u,{siteType:'industry',siteKey:String(st.sid),countryKey:country,lat:Number(st.lat),lng:Number(st.lng)},true);
-    if(site)stats.structures++;
-    else { const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first(); if(owner&&owner.username===u.username)throw new Error('ساختمان ذخیره‌شده در game_sites ثبت نشد: '+String(st.sid)); }
+    if(!st||!st.sid||!['refinery','steel_factory','food_factory','industry'].includes(String(st.type||'')))continue;
+    await syncOne(st,'industry',String(st.sid),String(st.type||'industry'),st.countryKey,'structures');
   }
   for(const fm of (Array.isArray(save.factoriesM)?save.factoriesM:[])){
-    if(!fm||!fm.key||!validCoord(fm.lat,fm.lng))continue;
-    const country=String(fm.countryKey||'');
-    const site=await createSite(env,u,{siteType:'factory',siteKey:String(fm.key),countryKey:country,lat:Number(fm.lat),lng:Number(fm.lng)},true);
-    if(site&&String(site.site_type)==='factory'){await ensureFactoryLine(env,u,s,String(fm.key));stats.factories++;}
-    else { const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first(); if(owner&&owner.username===u.username)throw new Error('کارخانه ذخیره‌شده در game_sites ثبت نشد: '+String(fm.key)); }
+    if(!fm||!fm.key)continue;
+    const site=await syncOne(fm,'factory',String(fm.key),String(fm.key),fm.countryKey,'factories');
+    if(site&&String(site.site_type)==='factory')await ensureFactoryLine(env,u,s,String(fm.key));
   }
   for(const b of (Array.isArray(save.bases)?save.bases:[])){
-    const key=String(b&& (b.id||('base_'+String(b.type||b.baseType||'base')+'_'+String(b.countryKey||b.country_key||'')+'_'+String(Math.round(Number(b.lat)*1000))+'_'+String(Math.round(Number(b.lng)*1000))))||'');
-    if(!b||!key||!validCoord(b.lat,b.lng))continue;
-    const country=String(b.countryKey||b.country_key||'');
-    const site=await createSite(env,u,{siteType:'base',siteKey:key,countryKey:country,lat:Number(b.lat),lng:Number(b.lng)},true);
-    if(site)stats.bases++;
-    else { const owner=await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first(); if(owner&&owner.username===u.username)throw new Error('پایگاه ذخیره‌شده در game_sites ثبت نشد: '+key); }
+    const country=String(b&& (b.countryKey||b.country_key)||'');
+    const key=String(b&&(b.id||('base_'+String(b.type||b.baseType||'base')+'_'+String(country)+'_'+String(Math.round(Number(b.lat)*1000))+'_'+String(Math.round(Number(b.lng)*1000))))||'');
+    await syncOne(b,'base',key,String(b.type||b.baseType||'base'),country,'bases');
+  }
+  for(const [arr,siteType,prefix,gameType,category] of [
+    ['defenses','defense','defense','defense','defenses'],
+    ['radars','radar','radar','radar','radars'],
+    ['launchpads','launchpad','launchpad','launchpad','launchpads']
+  ]){
+    const list=Array.isArray(save[arr])?save[arr]:[];
+    for(let i=0;i<list.length;i++){
+      const item=list[i];if(!item)continue;
+      const country=String(item.countryKey||item.country_key||'');
+      const key=String(item.id||('saved_'+prefix+'_'+keyPart(country)+'_'+String(Math.round(Number(item.lat)*10000))+'_'+String(Math.round(Number(item.lng)*10000))+'_'+i));
+      await syncOne(item,siteType,key,gameType,country,category);
+    }
   }
   return stats;
 }
+async function hydrateSaveFromOperationalTables(env,u,server,source){
+  const s=clamp(safeInt(server,1),1,1000),save=source&&typeof source==='object'?JSON.parse(JSON.stringify(source)):{};
+  const ownRows=(await env.DB.prepare('SELECT country_key FROM country_owners WHERE username=? AND server=? ORDER BY country_key').bind(u.username,s).all()).results||[];
+  if(ownRows.length)save.playerTerritories=ownRows.map(r=>String(r.country_key));
+  else if(!Array.isArray(save.playerTerritories))save.playerTerritories=[];
+  for(const k of ['structures','factoriesM','defenses','radars','launchpads','bases','armies','marchingAttacks'])if(!Array.isArray(save[k]))save[k]=[];
+  if(!save.factories||typeof save.factories!=='object'||Array.isArray(save.factories))save.factories={};
+  // Inventory and production queues are normalized from their operational tables, not a stale browser mirror.
+  const inv=await modelInventory(env,u.username,s);
+  if(inv.length||!save.modelInventory||typeof save.modelInventory!=='object')save.modelInventory=Object.fromEntries(inv.map(x=>[String(x.model),Math.max(0,safeInt(x.quantity))]));
+  let lines=(await env.DB.prepare('SELECT factory_key,model,sample_count,queued,produced,last_tick FROM factory_lines WHERE username=? AND server=? ORDER BY factory_key').bind(u.username,s).all()).results||[];
+  if(!lines.length&&save.productionLines&&typeof save.productionLines==='object'&&!Array.isArray(save.productionLines)){
+    for(const [key,l] of Object.entries(save.productionLines)){if(!key||!l||typeof l!=='object')continue;await env.DB.prepare('INSERT OR IGNORE INTO factory_lines(username,server,factory_key,model,sample_count,queued,produced,last_tick) VALUES(?,?,?,?,?,?,?,?)').bind(u.username,s,key,l.model||null,Math.max(0,safeInt(l.sampleCount)),Math.max(0,safeInt(l.queued)),Math.max(0,safeInt(l.produced)),Math.max(0,safeInt(l.lastTick,now()))).run();}
+    lines=(await env.DB.prepare('SELECT factory_key,model,sample_count,queued,produced,last_tick FROM factory_lines WHERE username=? AND server=? ORDER BY factory_key').bind(u.username,s).all()).results||[];
+  }
+  if(lines.length){save.productionLines={};for(const l of lines)save.productionLines[String(l.factory_key)]={model:l.model||null,sampleCount:Math.max(0,safeInt(l.sample_count)),queued:Math.max(0,safeInt(l.queued)),produced:Math.max(0,safeInt(l.produced)),lastTick:Math.max(0,safeInt(l.last_tick))};}
+  const sites=(await env.DB.prepare('SELECT * FROM game_sites WHERE server=? AND owner_username=? ORDER BY id').bind(s,u.username).all()).results||[];
+  const resourceRows=(await env.DB.prepare('SELECT sr.site_id,sr.resource,sr.quantity,sr.capacity FROM site_resources sr JOIN game_sites gs ON gs.id=sr.site_id WHERE gs.server=? AND gs.owner_username=?').bind(s,u.username).all()).results||[];
+  const equipmentRows=(await env.DB.prepare('SELECT se.site_id,se.model,se.quantity,se.installed FROM site_equipment se JOIN game_sites gs ON gs.id=se.site_id WHERE gs.server=? AND gs.owner_username=?').bind(s,u.username).all()).results||[];
+  const resourcesBySite=new Map(),equipmentBySite=new Map();for(const r of resourceRows){const k=String(r.site_id);if(!resourcesBySite.has(k))resourcesBySite.set(k,{});resourcesBySite.get(k)[String(r.resource)]={quantity:Number(r.quantity||0),capacity:Number(r.capacity||0)};}for(const e of equipmentRows){const k=String(e.site_id);if(!equipmentBySite.has(k))equipmentBySite.set(k,{});equipmentBySite.get(k)[String(e.model)]={quantity:Math.max(0,safeInt(e.quantity)),installed:!!safeInt(e.installed,1)};}
+  save.operationalSites=sites.filter(site=>Number(site.integrity||0)>0).map(site=>({id:site.id,siteKey:String(site.site_key||''),siteType:String(site.site_type||''),gameType:String(site.game_type||''),countryKey:String(site.country_key||''),lat:site.lat==null?null:Number(site.lat),lng:site.lng==null?null:Number(site.lng),integrity:Math.max(0,Number(site.integrity||0)),maxIntegrity:Math.max(1,Number(site.max_integrity||100)),payload:(()=>{try{return JSON.parse(site.payload_json||'null')}catch(_){return null}})(),resources:resourcesBySite.get(String(site.id))||{},equipment:equipmentBySite.get(String(site.id))||{}}));
+  const parsePayload=site=>{try{const x=JSON.parse(site.payload_json||'{}');return x&&typeof x==='object'&&!Array.isArray(x)?x:null}catch(_){return null}};
+  const coordOk=x=>Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lng));
+  const removeMatch=(arr,pred)=>{for(let i=arr.length-1;i>=0;i--)if(pred(arr[i]))arr.splice(i,1)};
+  const existingBy=(arr,pred)=>arr.find(x=>x&&pred(x));
+  for(const site of sites){
+    const type=String(site.site_type||''),key=String(site.site_key||''),country=String(site.country_key||''),alive=Number(site.integrity||0)>0;
+    let payload=parsePayload(site);
+    if(type==='industry'){
+      const old=existingBy(save.structures,x=>String(x.sid||'')===key);
+      if(!alive){removeMatch(save.structures,x=>String(x.sid||'')===key);continue;}
+      const item=Object.assign({},old||{},payload||{});
+      if(!item.sid)item.sid=key;if(!item.type)item.type=String(site.game_type||'industry');if(!item.countryKey)item.countryKey=country;
+      if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;if(item.isBuilding==null)item.isBuilding=false;
+      if(coordOk(item)&&!existingBy(save.structures,x=>String(x.sid||'')===key))save.structures.push(item);
+      else if(old&&payload)Object.assign(old,item);
+    }else if(type==='factory'||type==='shipyard'){
+      const old=existingBy(save.factoriesM,x=>String(x.key||'')===key);
+      if(!alive){removeMatch(save.factoriesM,x=>String(x.key||'')===key);save.factories[key]=0;continue;}
+      const item=Object.assign({},old||{},payload||{});item.key=item.key||key;item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
+      if(coordOk(item)&&!old)save.factoriesM.push(item);else if(old&&payload)Object.assign(old,item);
+      save.factories[key]=Math.max(1,safeInt(save.factories[key]));
+    }else if(type==='base'){
+      const old=existingBy(save.bases,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));
+      if(!alive){removeMatch(save.bases,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));continue;}
+      const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.type=item.type||String(site.game_type||'land');item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
+      if(coordOk(item)&&!old)save.bases.push(item);else if(old&&payload)Object.assign(old,item);
+    }else if(['defense','radar','launchpad'].includes(type)){
+      const arr=type==='defense'?save.defenses:type==='radar'?save.radars:save.launchpads;
+      const old=existingBy(arr,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));
+      if(!alive){removeMatch(arr,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));continue;}
+      const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
+      if(type==='launchpad'&&item.missiles==null)item.missiles=0;
+      if(coordOk(item)&&!old)arr.push(item);else if(old&&payload)Object.assign(old,item);
+    }
+  }
+  // The operational fleet table is the source of truth for fleet count, position and destruction status.
+  let allFleetRows=(await env.DB.prepare('SELECT id,status,count FROM naval_fleets WHERE server=? AND username=?').bind(s,u.username).all()).results||[];
+  if(!allFleetRows.length&&Array.isArray(save.navalFleets)&&save.navalFleets.length){
+    for(const f of save.navalFleets){if(!f||!f.id||!Number.isFinite(Number(f.lat))||!Number.isFinite(Number(f.lng))||safeInt(f.count)<=0)continue;let route=null;try{route=Array.isArray(f.path)?JSON.stringify(f.path):null}catch(_){}await env.DB.prepare("INSERT OR IGNORE INTO naval_fleets(id,username,server,country_key,type,count,lat,lng,target_lat,target_lng,status,radar_km,last_update,created_at,route_json,fuel,food) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(String(f.id),u.username,s,String(f.countryKey||''),String(f.type||'ship'),Math.max(1,safeInt(f.count)),Number(f.lat),Number(f.lng),f.targetLat==null?null:Number(f.targetLat),f.targetLng==null?null:Number(f.targetLng),String(f.status||'idle'),300,now(),Math.max(0,safeInt(f.createdAt,now())),route,Math.max(0,Number(f.fuel||0)),Math.max(0,Number(f.food||0))).run();}
+    allFleetRows=(await env.DB.prepare('SELECT id,status,count FROM naval_fleets WHERE server=? AND username=?').bind(s,u.username).all()).results||[];
+  }
+  const fleetRows=(await env.DB.prepare("SELECT * FROM naval_fleets WHERE server=? AND username=? AND count>0 AND status<>'destroyed' ORDER BY created_at,id").bind(s,u.username).all()).results||[];
+  if(fleetRows.length){
+    const oldById=new Map((Array.isArray(save.navalFleets)?save.navalFleets:[]).filter(Boolean).map(f=>[String(f.id||f.fleetId||''),f]));
+    save.navalFleets=fleetRows.map(f=>{let route=null;try{route=JSON.parse(f.route_json||'null')}catch(_){}const old=oldById.get(String(f.id))||{};return Object.assign({},old,{id:String(f.id),type:String(f.type||old.type||'ship'),count:Math.max(0,safeInt(f.count)),countryKey:f.country_key||old.countryKey||'',lat:Number(f.lat),lng:Number(f.lng),targetLat:f.target_lat==null?null:Number(f.target_lat),targetLng:f.target_lng==null?null:Number(f.target_lng),status:String(f.status||'idle'),fuel:Number(f.fuel||0),food:Number(f.food||0),path:Array.isArray(route)?route:(Array.isArray(old.path)?old.path:null),ownerUsername:u.username});});
+  }else if(allFleetRows.length||!Array.isArray(save.navalFleets))save.navalFleets=[];
+  save.server=s;
+  return save;
+}
+
 async function defenseResolve(env,server,user,power,distance,targetCountry=null,targetSite=null,attackModel='missile'){const rows=targetCountry?(await env.DB.prepare("SELECT * FROM defense_launchers WHERE username=? AND server=? AND country_key=? AND active=1 AND quantity>0 AND status='ready' AND ammo>0").bind(user,server,targetCountry).all()).results||[]:[];
 let total=0,intercepted=false,used=null;for(const d of rows){let inRange=Number(d.range_km||0)>=distance;if(targetSite&&Number.isFinite(Number(targetSite.lat))&&Number.isFinite(Number(targetSite.lng)))inRange=Number.isFinite(Number(d.lat))&&Number.isFinite(Number(d.lng))&&distKm(targetSite,{lat:Number(d.lat),lng:Number(d.lng)}
 )<=Number(d.range_km||0);if(!inRange)continue;const q=Math.max(1,safeInt(d.quantity));total+=Number(d.defense_power||0)*q;if(defenseCanStopAir(d.defense_model,attackModel,power)){const chance=defenseInterceptChance(Number(d.defense_power||0),power);
@@ -752,7 +844,7 @@ return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEn
 }if(path==='/game/action'&&method==='POST'){
 const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
 const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,1000),kind=String(b.action||''),nowAt=now();
-if(['build_structure','build_factory','build_base'].includes(kind)){
+if(['build_structure','build_factory','build_base','place_defense','place_radar','place_launchpad'].includes(kind)){
  const country=String(b.countryKey||'');
  const owner=country?await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first():null;
  if(!owner||owner.username!==u.username)return err('کشور متعلق به شما نیست یا مالکیت آن در سرور تأیید نشد',403,origin);
@@ -833,7 +925,7 @@ const r=await mutateSaveCAS(env,u.username,s,async save=>{
  save.server=s;save.updatedAt=nowAt;return{ok:true,action:kind};
 });
 if(!r.ok)return err(r.error||'عملیات رد شد',409,origin);const save=r.save;
-if(['build_structure','build_factory','build_base'].includes(kind)){
+if(['build_structure','build_factory','build_base','place_defense','place_radar','place_launchpad'].includes(kind)){
   try{
     const synced=await syncSavedOperationalSites(env,u,s,save);
     if(kind==='build_factory'){
@@ -845,6 +937,13 @@ if(['build_structure','build_factory','build_base'].includes(kind)){
     if(kind==='build_structure'){
       const st=(Array.isArray(save.structures)?save.structures:[]).slice().reverse().find(x=>x&&x.type===String(b.type||'')&&x.countryKey===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
       if(st){const site=await env.DB.prepare('SELECT id FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_key=? LIMIT 1').bind(s,u.username,String(st.countryKey),String(st.sid)).first();if(!site)throw new Error('ساختمان در جدول عملیاتی ثبت نشد');}
+    }
+    if(['place_defense','place_radar','place_launchpad'].includes(kind)){
+      const spec={place_defense:['defenses','defense'],place_radar:['radars','radar'],place_launchpad:['launchpads','launchpad']}[kind],arr=Array.isArray(save[spec[0]])?save[spec[0]]:[];
+      const item=arr.slice().reverse().find(x=>x&&String(x.countryKey||'')===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
+      if(!item||!item.id)throw new Error('شناسهٔ دارایی نصب‌شده در ذخیرهٔ سرور پیدا نشد');
+      const site=await env.DB.prepare('SELECT id,site_type FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_key=? LIMIT 1').bind(s,u.username,String(item.countryKey),String(item.id)).first();
+      if(!site||String(site.site_type)!==spec[1])throw new Error('دارایی نصب‌شده در جدول عملیاتی ثبت نشد');
     }
   }catch(e){
     console.error('KOW operational build sync failed',kind,u.username,e);
@@ -859,6 +958,11 @@ if(['build_structure','build_factory','build_base'].includes(kind)){
         await mutateSaveCAS(env,u.username,s,sv=>{sv.factoriesM=(Array.isArray(sv.factoriesM)?sv.factoriesM:[]).filter(x=>String(x&&x.key)!==key);sv.factories=sv.factories&&typeof sv.factories==='object'?sv.factories:{};sv.factories[key]=0;sv.gold=safeInt(sv.gold)+price;sv.coins=sv.gold;});
         await env.DB.prepare('DELETE FROM factory_lines WHERE username=? AND server=? AND factory_key=?').bind(u.username,s,key).run();
         await env.DB.prepare("DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND country_key=? AND site_type='factory' AND updated_at>=?").bind(s,u.username,key,String(b.countryKey||''),nowAt-5000).run();
+      }else if(['place_defense','place_radar','place_launchpad'].includes(kind)){
+        const spec={place_defense:['defenses','defense','defense'],place_radar:['radars','radar','radar'],place_launchpad:['launchpads','launchpad','launchpad']}[kind];
+        const latest=await getSave(env,u.username,s)||{},arr=Array.isArray(latest[spec[0]])?latest[spec[0]]:[];
+        const item=arr.slice().reverse().find(x=>x&&String(x.countryKey||'')===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
+        if(item){await mutateSaveCAS(env,u.username,s,sv=>{sv[spec[0]]=(Array.isArray(sv[spec[0]])?sv[spec[0]]:[]).filter(x=>String(x&&x.id||'')!==String(item.id||''));sv.militaryInventory=sv.militaryInventory&&typeof sv.militaryInventory==='object'?sv.militaryInventory:{};sv.militaryInventory[spec[1]]=safeInt(sv.militaryInventory[spec[1]])+1;});await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND country_key=? AND site_key=? AND site_type=?').bind(s,u.username,String(item.countryKey||''),String(item.id||''),spec[2]).run();}
       }else if(kind==='build_base'){
         const type=String(b.baseType||''),price={land:200,air:300,naval:400}[type]||0;
         const latest=await getSave(env,u.username,s)||{};const base=(Array.isArray(latest.bases)?latest.bases:[]).slice().reverse().find(x=>x&&String(x.type||'')===type&&String(x.countryKey||'')===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
@@ -894,27 +998,36 @@ for(const k of ['gold','coins','oil','steel','food','fuel','xp','units','militar
 // Country ownership is maintained transactionally in country_owners; do not let a save rewrite it.
 if(Array.isArray(cur.playerTerritories)&&cur.playerTerritories.length)save.playerTerritories=cur.playerTerritories;
 save.server=s;return await saveGame(env,u,save);});}catch(e){if(e.message==='LOCK_BUSY')return err('ذخیره همزمان است؛ دوباره تلاش کن',409,origin);throw e;}return json({ok:true,saved_at:now(),...result}
-,200,origin);}if(path==='/load'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000);let save=await getSave(env,u.username,s);const recovery=await getSaveRecovery(env,u.username,s,save);
-// Self-heal a fresh/partial current row from the richest valid same-round backup.
-// Earlier code returned `recovery` but the client only consumed `save`, so the
-// backup was never actually used after a bad snapshot overwrote the live row.
-const richness=x=>backupRichness(x);
-const hasOwned=x=>!!(x&&Array.isArray(x.playerTerritories)&&x.playerTerritories.length>0);
-let recovered=false;
-if(recovery&&hasOwned(recovery)){
-  const rr=await getRound(env,s);
-  const curRound=safeInt(save&&save.roundId,0), bakRound=safeInt(recovery.roundId,0), activeRound=safeInt(rr&&rr.round_id,1);
-  const sameRound=(curRound&&bakRound)?curRound===bakRound:activeRound===1;
-  const shouldRecover=(!hasOwned(save)||richness(recovery)>richness(save))&&sameRound;
-  if(shouldRecover){
-    recovery.server=s;
-    await env.DB.prepare('INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO UPDATE SET save_json=excluded.save_json,updated_at=excluded.updated_at').bind(u.username,s,JSON.stringify(recovery),now()).run();
-    save=recovery;recovered=true;
-    console.warn('KOW save auto-recovered from backup',u.username,'server',s,'round',activeRound);
+,200,origin);}if(path==='/load'&&method==='GET'){
+const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
+const s=clamp(safeInt(u.server,1),1,1000);let save=await getSave(env,u.username,s);const recovery=await getSaveRecovery(env,u.username,s,save);let recovered=false;
+// Backups are used only when the primary row is absent/invalid; picking a merely richer old snapshot can resurrect destroyed assets.
+if((!save||!Array.isArray(save.playerTerritories)||!save.playerTerritories.length)&&recovery&&Array.isArray(recovery.playerTerritories)&&recovery.playerTerritories.length){
+  recovery.server=s;await env.DB.prepare('INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO UPDATE SET save_json=excluded.save_json,updated_at=excluded.updated_at').bind(u.username,s,JSON.stringify(recovery),now()).run();save=recovery;recovered=true;
+  console.warn('KOW save recovered because primary row was missing/invalid',u.username,'server',s);
+}
+// If a country is owned but its JSON row is missing, rebuild only a zero-inventory shell from server-owned facts.
+if(!save){
+  const owned=(await env.DB.prepare('SELECT country_key FROM country_owners WHERE username=? AND server=? ORDER BY country_key').bind(u.username,s).all()).results||[];
+  if(owned.length){const account=await env.DB.prepare('SELECT gold,xp,score,level FROM users WHERE username=?').bind(u.username).first();save={version:'50.6.0',server:s,playerTerritories:owned.map(x=>String(x.country_key)),gold:Math.max(0,safeInt(account&&account.gold)),coins:Math.max(0,safeInt(account&&account.gold)),oil:0,steel:0,food:0,fuel:0,units:{soldier:0,tank:0,helicopter:0,jet:0,drone:0,scout_drone:0,missile:0,ship:0,carrier:0,troopship:0,warship:0},militaryInventory:{radar:0,missile:0,launchpad:0,defense:0},factories:{},productionLines:{},modelInventory:{},structures:[],factoriesM:[],defenses:[],radars:[],launchpads:[],bases:[],armies:[],marchingAttacks:[],navalFleets:[],score:Math.max(0,safeInt(account&&account.score)),level:Math.max(1,safeInt(account&&account.level,1)),xp:Math.max(0,safeInt(account&&account.xp))};
+    await env.DB.prepare('INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO NOTHING').bind(u.username,s,JSON.stringify(save),now()).run();
+    save=await getSave(env,u.username,s)||save;
   }
 }
-if(save){try{await syncSavedOperationalSites(env,u,s,save);}catch(e){console.error('KOW operational save sync failed; refusing partial load',u.username,s,e);return err('خطا در همگام‌سازی ذخیره روی سرور؛ ورود انجام نشد. اتصال را بررسی کن و دوباره تلاش کن.',503,origin);}const inv=await modelInventory(env,u.username,s);save.modelInventory=Object.fromEntries(inv.map(x=>[x.model,Math.max(0,safeInt(x.quantity))]));const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();if(account){save.gold=Math.max(0,safeInt(account.gold));save.coins=save.gold;save.xp=Math.max(0,safeInt(account.xp,save.xp||0));}else save.coins=Math.max(0,safeInt(save.gold));const meta=await env.DB.prepare('SELECT state_version,last_snapshot_at FROM player_state_meta WHERE username=? AND server=?').bind(u.username,s).first().catch(()=>null);if(meta){save.stateVersion=safeInt(meta.state_version);save.lastSnapshotAt=safeInt(meta.last_snapshot_at);}}
-return json({ok:true,save,recovery,recovered,inventory:save&&save.modelInventory&&typeof save.modelInventory==='object'?save.modelInventory:{}},200,origin);}if(path==='/stats'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const x=await env.DB.prepare('SELECT score,countries_count,level,xp,server,gold FROM users WHERE username=?').bind(u.username).first();
+let syncWarning=null;
+if(save){
+  try{await syncSavedOperationalSites(env,u,s,save);}catch(e){syncWarning=String(e&&e.message||e);console.error('KOW operational site sync deferred; returning persisted save',u.username,s,e);}
+  try{save=await hydrateSaveFromOperationalTables(env,u,s,save);}catch(e){console.error('KOW operational hydration failed; retaining persisted snapshot',u.username,s,e);}
+  const account=await env.DB.prepare('SELECT gold,xp FROM users WHERE username=?').bind(u.username).first();
+  if(account){save.gold=Math.max(0,safeInt(account.gold));save.coins=save.gold;save.xp=Math.max(0,safeInt(account.xp,save.xp||0));}else save.coins=Math.max(0,safeInt(save.gold));
+  const rr=await getRound(env,s);if(save.roundId==null&&rr&&rr.round_id!=null)save.roundId=safeInt(rr.round_id,1);
+  const meta=await env.DB.prepare('SELECT state_version,last_snapshot_at FROM player_state_meta WHERE username=? AND server=?').bind(u.username,s).first().catch(()=>null);if(meta){save.stateVersion=safeInt(meta.state_version);save.lastSnapshotAt=safeInt(meta.last_snapshot_at);}
+  // Persist server-derived hydration (including destruction filtering) without applying client-side merge guards.
+  try{const row=await env.DB.prepare('SELECT save_json FROM kow_saves WHERE username=? AND server=?').bind(u.username,s).first();const encoded=JSON.stringify(save);if(row&&String(row.save_json||'')!==encoded){await createSaveBackup(env,u,s,row);await env.DB.prepare('UPDATE kow_saves SET save_json=?,updated_at=? WHERE username=? AND server=?').bind(encoded,now(),u.username,s).run();}}catch(e){console.error('KOW hydrated snapshot persistence deferred',u.username,s,e);}
+}
+const rr=await getRound(env,s);
+return json({ok:true,save,recovery,recovered,server:s,roundId:safeInt(rr&&rr.round_id,1),roundStatus:String(rr&&rr.status||'active'),syncWarning,inventory:save&&save.modelInventory&&typeof save.modelInventory==='object'?save.modelInventory:{},assets:save?{structures:save.structures||[],factoriesM:save.factoriesM||[],defenses:save.defenses||[],radars:save.radars||[],launchpads:save.launchpads||[],bases:save.bases||[],navalFleets:save.navalFleets||[],operationalSites:save.operationalSites||[],modelInventory:save.modelInventory||{},productionLines:save.productionLines||{}}:{}},200,origin);
+}if(path==='/stats'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const x=await env.DB.prepare('SELECT score,countries_count,level,xp,server,gold FROM users WHERE username=?').bind(u.username).first();
 return json({ok:true,score:safeInt(x&&x.score),countries:safeInt(x&&x.countries_count),level:safeInt(x&&x.level,1),xp:safeInt(x&&x.xp),gold:Math.max(0,safeInt(x&&x.gold)),coins:Math.max(0,safeInt(x&&x.gold)),server:safeInt(x&&x.server,1)},200,origin);}if(path==='/leaderboard'&&method==='GET'){const cutoff=now()-60000;
 const rows=(await env.DB.prepare('SELECT username,score,countries_count,level,last_seen,CASE WHEN last_seen>=? THEN 1 ELSE 0 END AS online FROM users ORDER BY score DESC,countries_count DESC,username ASC LIMIT 100').bind(cutoff).all()).results||[];
 return json({ok:true,leaderboard:rows},200,origin);}if(path==='/sync'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const s=clamp(safeInt(u.server,1),1,1000),t=now();
