@@ -858,7 +858,7 @@ if(['build_structure','build_factory','build_base'].includes(kind)){
         const key=String(b.factoryKey||''),price=FACTORY_BUILD_GOLD_COST[key]||0;
         await mutateSaveCAS(env,u.username,s,sv=>{sv.factoriesM=(Array.isArray(sv.factoriesM)?sv.factoriesM:[]).filter(x=>String(x&&x.key)!==key);sv.factories=sv.factories&&typeof sv.factories==='object'?sv.factories:{};sv.factories[key]=0;sv.gold=safeInt(sv.gold)+price;sv.coins=sv.gold;});
         await env.DB.prepare('DELETE FROM factory_lines WHERE username=? AND server=? AND factory_key=?').bind(u.username,s,key).run();
-        await env.DB.prepare('DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND country_key=? AND site_type='factory' AND updated_at>=?').bind(s,u.username,key,String(b.countryKey||''),nowAt-5000).run();
+        await env.DB.prepare("DELETE FROM game_sites WHERE server=? AND owner_username=? AND site_key=? AND country_key=? AND site_type='factory' AND updated_at>=?").bind(s,u.username,key,String(b.countryKey||''),nowAt-5000).run();
       }else if(kind==='build_base'){
         const type=String(b.baseType||''),price={land:200,air:300,naval:400}[type]||0;
         const latest=await getSave(env,u.username,s)||{};const base=(Array.isArray(latest.bases)?latest.bases:[]).slice().reverse().find(x=>x&&String(x.type||'')===type&&String(x.countryKey||'')===String(b.countryKey||'')&&Math.abs(Number(x.lat)-Number(b.lat))<0.0001&&Math.abs(Number(x.lng)-Number(b.lng))<0.0001);
