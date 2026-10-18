@@ -916,7 +916,7 @@ return json({ok:true,country:c,server:s,roundId:rr.roundId,roundEnded:rr.roundEn
 }if(path==='/game/action'&&method==='POST'){
 const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
 const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,1000),kind=String(b.action||''),nowAt=now();
-if(['build_structure','build_factory','build_base','place_defense','place_radar','place_launchpad'].includes(kind)){
+if(['build_structure','build_factory','build_base','place_defense','place_radar','place_launchpad','build_military_structure'].includes(kind)){
  const country=String(b.countryKey||'');
  const owner=country?await env.DB.prepare('SELECT username FROM country_owners WHERE server=? AND country_key=?').bind(s,country).first():null;
  if(!owner||owner.username!==u.username)return err('کشور متعلق به شما نیست یا مالکیت آن در سرور تأیید نشد',403,origin);
@@ -964,6 +964,15 @@ const r=await mutateSaveCAS(env,u.username,s,async save=>{
   const map={place_defense:['defense','defenses'],place_radar:['radar','radars'],place_launchpad:['launchpad','launchpads']};const [item,key]=map[kind];
   if(safeInt(save.militaryInventory[item])<1)return{error:'این مورد در انبار موجود نیست'};save.militaryInventory[item]--;
   save[key].push({id:'srv_'+item+'_'+nowAt+'_'+Math.floor(Math.random()*100000),countryKey:country,lat:Number(b.lat),lng:Number(b.lng),missiles:0});
+ } else if(kind==='build_military_structure'){
+  const country=String(b.countryKey||''),item=String(b.item||'');
+  const spec={defense:{price:640,key:'defenses'},radar:{price:400,key:'radars'},launchpad:{price:500,key:'launchpads'}}[item];
+  if(!spec)return{error:'نوع سازهٔ نظامی نامعتبر است'};
+  if(!own(country))return{error:'کشور متعلق به شما نیست'};
+  if(!coord(b.lat)||!lng(b.lng))return{error:'مختصات نامعتبر است'};
+  if(safeInt(save.gold)<spec.price)return{error:'طلای کافی ندارید'};
+  save.gold-=spec.price;save.coins=save.gold;
+  save[spec.key].push({id:'srv_'+item+'_'+nowAt+'_'+Math.floor(Math.random()*100000),countryKey:country,lat:Number(b.lat),lng:Number(b.lng),missiles:0});
  } else if(kind==='missile_transport'){
   if(safeInt(save.units.missile)<1)return{error:'موشک در انبار موجود نیست'};if(!Array.isArray(save.launchpads)||!save.launchpads.length)return{error:'سکوی پرتابی ندارید'};
   const lat=Number(b.lat),lon=Number(b.lng);if(!coord(lat)||!lng(lon))return{error:'مختصات نامعتبر است'};
