@@ -448,9 +448,11 @@ return json({ok:true,lines,inventory:await modelInventory(env,u.username,server)
 const b=await request.json().catch(()=>({})),server=clamp(safeInt(u.server,1),1,1000),key=String(b.factoryKey||b.key||'').slice(0,40),model=String(b.model||'');
 if(!MODEL_META[model])return err('مدل نامعتبر است');
 return await withGameLock(env,`factory:${u.username}:${server}:${key}`,async()=>{
- const site=await env.DB.prepare("SELECT site_type,integrity FROM game_sites WHERE server=? AND owner_username=? AND site_key=? LIMIT 1").bind(server,u.username,key).first();
+ let site=await env.DB.prepare("SELECT id,site_key,site_type,integrity FROM game_sites WHERE server=? AND owner_username=? AND site_key=? LIMIT 1").bind(server,u.username,key).first();
+ // Shipyard production lines use the stable key shipyard_<site id>; resolve that key to the actual owned site.
+ if(!site&&/^shipyard_\d+$/.test(key)){const sid=safeInt(key.slice(9),0);if(sid>0)site=await env.DB.prepare("SELECT id,site_key,site_type,integrity FROM game_sites WHERE id=? AND server=? AND owner_username=? LIMIT 1").bind(sid,server,u.username).first();}
  if(!site||Number(site.integrity||0)<=0||!['factory','shipyard'].includes(String(site.site_type)))return err('خط تولید به کارخانه/کشتی‌سازی معتبر متصل نیست');
- if(!factoryModelAllowed(key,model,site.site_type))return err('این مدل برای این نوع کارخانه مجاز نیست');
+ if(!factoryModelAllowed(site.site_key||key,model,site.site_type))return err('این مدل برای این نوع کارخانه مجاز نیست');
  const line=await ensureFactoryLine(env,u,server,key);
  if(line.model===model)return json({ok:true,line,message:'این مدل از قبل ثبت شده است'});
  if(safeInt(line.queued)>0||safeInt(line.produced)>0)return err('تا وقتی صف تولید و محصولات آماده این خط تخلیه نشده‌اند، مدل را نمی‌توان تغییر داد.',409);
