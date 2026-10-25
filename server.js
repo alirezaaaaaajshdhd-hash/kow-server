@@ -416,14 +416,35 @@ else if(cur.productionLines&&typeof cur.productionLines==='object') out.producti
 if(!Array.isArray(inc.navalFleets)||inc.navalFleets.length===0) out.navalFleets=Array.isArray(cur.navalFleets)?cur.navalFleets:(Array.isArray(inc.navalFleets)?inc.navalFleets:[]);
 for(const k of ['fuel','food','oil','steel','gold','xp']) if(inc[k]===undefined||inc[k]===null) out[k]=cur[k];
 return out;
-}function backupRichness(save){if(!save||typeof save!=='object')return 0;const a=k=>Array.isArray(save[k])?save[k].length:0;let n=a('playerTerritories')*2+a('bases')*50+a('structures')*20+a('factoriesM')*25+a('navalFleets')*25+a('defenses')*10+a('radars')*10+a('launchpads')*10+a('marchingAttacks')*12;
-if(save.factories&&typeof save.factories==='object')n+=Object.values(save.factories).reduce((x,v)=>x+safeInt(v),0)*12;if(save.modelInventory&&typeof save.modelInventory==='object')n+=Object.values(save.modelInventory).reduce((x,v)=>x+safeInt(v),0)*5;
-if(save.productionLines&&typeof save.productionLines==='object')n+=Object.keys(save.productionLines).length*5;return n;}async function createSaveBackup(env,u,server,current){if(!current||!current.save_json)return;
+}async function createSaveBackup(env,u,server,current){if(!current||!current.save_json)return;
 try{const last=await env.DB.prepare('SELECT save_json FROM save_backups WHERE username=? AND server=? ORDER BY id DESC LIMIT 1').bind(u.username,server).first();if(last&&String(last.save_json||'')===String(current.save_json||''))return;
 await env.DB.prepare('INSERT INTO save_backups(user_id,username,server,save_json,data,created_at) VALUES(?,?,?,?,?,?)').bind(u.id,u.username,server,String(current.save_json),String(current.save_json),now()).run();
 await env.DB.prepare('DELETE FROM save_backups WHERE username=? AND server=? AND id NOT IN (SELECT id FROM save_backups WHERE username=? AND server=? ORDER BY id DESC LIMIT 25)').bind(u.username,server,u.username,server).run();
-}catch(e){console.warn('save backup:',e);}}async function getSaveRecovery(env,username,server,current){try{const rows=(await env.DB.prepare('SELECT save_json FROM save_backups WHERE username=? AND server=? ORDER BY id DESC LIMIT 25').bind(username,server).all()).results||[];
-let best=null,bs=-1;for(const row of rows){try{const x=JSON.parse(row.save_json||'{}'),sc=backupRichness(x);if(sc>bs){bs=sc;best=x;}}catch(_){}}return best;}catch(_){return null;}}
+}catch(e){console.warn('save backup:',e);}}async function getSaveRecovery(env,username,server,current){
+// Recovery must prefer the newest valid backup, never the richest/most populated one.
+// A richer old snapshot can resurrect destroyed assets or undo legitimate losses.
+try{
+  const rows=(await env.DB.prepare('SELECT id,save_json,created_at FROM save_backups WHERE username=? AND server=? ORDER BY id DESC LIMIT 25').bind(username,server).all()).results||[];
+  for(const row of rows){
+    try{
+      const x=JSON.parse(row.save_json||'');
+      if(!x||typeof x!=='object'||Array.isArray(x))continue;
+      if(!Array.isArray(x.playerTerritories)||x.playerTerritories.length===0)continue;
+      if(x.server!=null&&safeInt(x.server,server)!==safeInt(server))continue;
+      // Reject obviously malformed structural fields; do not score by asset quantity.
+      let malformed=false;
+      for(const k of ['structures','factoriesM','defenses','radars','launchpads','bases','armies','navalFleets']){
+        if(x[k]!==undefined&&!Array.isArray(x[k])){malformed=true;break;}
+      }
+      if(malformed)continue;
+      x.schemaVersion=Math.max(1,safeInt(x.schemaVersion,1));
+      x.server=safeInt(server,1);
+      return x;
+    }catch(_){}
+  }
+  return null;
+}catch(e){console.warn('KOW backup recovery lookup failed',username,server,e);return null;}
+}
 async function mutateSaveCAS(env,username,server,mutator,maxTries=6){server=clamp(safeInt(server,1),1,1000);for(let attempt=0;attempt<maxTries;attempt++){const row=await env.DB.prepare('SELECT save_json FROM kow_saves WHERE username=? AND server=?').bind(username,server).first();
 if(!row)return{ok:false,error:'ذخیره پیدا نشد'};let save;try{save=JSON.parse(row.save_json||'{}')}catch(_){return{ok:false,error:'ذخیره خراب است'}}const before=String(row.save_json);
 const result=await mutator(save);if(result&&result.error)return{ok:false,error:result.error};save.server=server;const after=JSON.stringify(save);const r=await env.DB.prepare('UPDATE kow_saves SET save_json=?,updated_at=? WHERE username=? AND server=? AND save_json=?').bind(after,now(),username,server,before).run();
@@ -431,7 +452,7 @@ if(r.meta&&safeInt(r.meta.changes)===1)return{ok:true,save,result};}return{ok:fa
 const current=await getSave(env,u.username,server);await createSaveBackup(env,u,server,current);const merged=mergeSaveForPersistence(current,save);const data={fuel:1000,food:1000,oil:0,steel:0,units:{}
 ,...(merged||{}),server};for(const k of['fuel','food','oil','steel'])data[k]=Math.max(0,safeInt(data[k]));if(data.units&&typeof data.units==='object')for(const k of Object.keys(data.units))data.units[k]=Math.max(0,safeInt(data.units[k]));
 data.gold=Math.max(0,safeInt(data.gold));data.coins=data.gold;
-const jsonText=JSON.stringify(data),snapshotAt=now();await env.DB.prepare(`INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO UPDATE SET save_json=excluded.save_json,updated_at=excluded.updated_at`).bind(u.username,server,jsonText,snapshotAt).run();await env.DB.prepare(`INSERT INTO player_state_meta(username,server,state_version,coin_balance,last_snapshot_at,updated_at) VALUES(?,?,1,?,?,?) ON CONFLICT(username,server) DO UPDATE SET state_version=player_state_meta.state_version+1,coin_balance=excluded.coin_balance,last_snapshot_at=excluded.last_snapshot_at,updated_at=excluded.updated_at`).bind(u.username,server,data.gold,snapshotAt,snapshotAt).run().catch(e=>console.warn('state metadata update:',e));
+const snapshotAt=now();data.schemaVersion=Math.max(1,safeInt(data.schemaVersion,1));data.savedAt=snapshotAt;data.saveRevision=Math.max(0,safeInt(current&&current.saveRevision))+1;const jsonText=JSON.stringify(data);await env.DB.prepare(`INSERT INTO kow_saves(username,server,save_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(username,server) DO UPDATE SET save_json=excluded.save_json,updated_at=excluded.updated_at`).bind(u.username,server,jsonText,snapshotAt).run();await env.DB.prepare(`INSERT INTO player_state_meta(username,server,state_version,coin_balance,last_snapshot_at,updated_at) VALUES(?,?,1,?,?,?) ON CONFLICT(username,server) DO UPDATE SET state_version=player_state_meta.state_version+1,coin_balance=excluded.coin_balance,last_snapshot_at=excluded.last_snapshot_at,updated_at=excluded.updated_at`).bind(u.username,server,data.gold,snapshotAt,snapshotAt).run().catch(e=>console.warn('state metadata update:',e));
 const ownedRows=(await env.DB.prepare('SELECT country_key FROM country_owners WHERE username=? AND server=?').bind(u.username,server).all()).results||[];const territories=ownedRows.map(x=>x.country_key);
 const score=Math.max(0,safeInt(data.score,safeInt(data.scoreDetails&&data.scoreDetails.total,0))),level=Math.max(1,safeInt(data.level,1)),xp=Math.max(0,safeInt(data.xp,0));await env.DB.prepare('UPDATE users SET server=?,gold=?,score=?,countries_count=?,level=?,xp=?,last_seen=? WHERE username=?').bind(server,data.gold,score,territories.length,level,xp,now(),u.username).run();
 await env.DB.prepare(`INSERT INTO scores(username,user_id,score,updated_at) VALUES(?,?,?,?) ON CONFLICT(username) DO UPDATE SET score=excluded.score,updated_at=excluded.updated_at`).bind(u.username,u.id,score,now()).run();
