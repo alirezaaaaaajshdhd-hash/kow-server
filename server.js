@@ -643,7 +643,17 @@ async function hydrateSaveFromOperationalTables(env,u,server,source){
   const resourcesBySite=new Map(),equipmentBySite=new Map();for(const r of resourceRows){const k=String(r.site_id);if(!resourcesBySite.has(k))resourcesBySite.set(k,{});resourcesBySite.get(k)[String(r.resource)]={quantity:Number(r.quantity||0),capacity:Number(r.capacity||0)};}for(const e of equipmentRows){const k=String(e.site_id);if(!equipmentBySite.has(k))equipmentBySite.set(k,{});equipmentBySite.get(k)[String(e.model)]={quantity:Math.max(0,safeInt(e.quantity)),installed:!!safeInt(e.installed,1)};}
   save.operationalSites=sites.filter(site=>Number(site.integrity||0)>0).map(site=>({id:site.id,siteKey:String(site.site_key||''),siteType:String(site.site_type||''),gameType:String(site.game_type||''),countryKey:String(site.country_key||''),lat:site.lat==null?null:Number(site.lat),lng:site.lng==null?null:Number(site.lng),integrity:Math.max(0,Number(site.integrity||0)),maxIntegrity:Math.max(1,Number(site.max_integrity||100)),payload:(()=>{try{return JSON.parse(site.payload_json||'null')}catch(_){return null}})(),resources:resourcesBySite.get(String(site.id))||{},equipment:equipmentBySite.get(String(site.id))||{}}));
   const parsePayload=site=>{try{const x=JSON.parse(site.payload_json||'{}');return x&&typeof x==='object'&&!Array.isArray(x)?x:null}catch(_){return null}};
-  const coordOk=x=>Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lng));
+  const coordOk=x=>{const lat=Number(x&&x.lat),lng=Number(x&&x.lng);return Number.isFinite(lat)&&Number.isFinite(lng)&&lat>=-90&&lat<=90&&lng>=-180&&lng<=180;};
+  const fixSiteCoords=(item,site)=>{
+    // Prefer valid coordinates in the operational row when payload coordinates
+    // are missing, strings/empty, or outside geographic bounds.
+    let lat=item.lat, lng=item.lng;
+    if((!Number.isFinite(Number(lat))||String(lat).trim()===''||Number(lat)<-90||Number(lat)>90) && site.lat!=null)lat=site.lat;
+    if((!Number.isFinite(Number(lng))||String(lng).trim()===''||Number(lng)<-180||Number(lng)>180) && site.lng!=null)lng=site.lng;
+    if((lat==null||String(lat).trim()==='')&&item.latlng){lat=Array.isArray(item.latlng)?item.latlng[0]:item.latlng.lat;}
+    if((lng==null||String(lng).trim()==='')&&item.latlng){lng=Array.isArray(item.latlng)?item.latlng[1]:item.latlng.lng;}
+    if(lat!=null)item.lat=Number(lat);if(lng!=null)item.lng=Number(lng);return item;
+  };
   const removeMatch=(arr,pred)=>{for(let i=arr.length-1;i>=0;i--)if(pred(arr[i]))arr.splice(i,1)};
   const existingBy=(arr,pred)=>arr.find(x=>x&&pred(x));
   for(const site of sites){
@@ -654,19 +664,19 @@ async function hydrateSaveFromOperationalTables(env,u,server,source){
       if(!alive){removeMatch(save.structures,x=>String(x.sid||'')===key);continue;}
       const item=Object.assign({},old||{},payload||{});
       if(!item.sid)item.sid=key;if(!item.type)item.type=String(site.game_type||'industry');if(!item.countryKey)item.countryKey=country;
-      if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;if(item.isBuilding==null)item.isBuilding=false;
+      fixSiteCoords(item,site);if(item.isBuilding==null)item.isBuilding=false;
       if(coordOk(item)&&!existingBy(save.structures,x=>String(x.sid||'')===key))save.structures.push(item);
       else if(old&&payload)Object.assign(old,item);
     }else if(type==='factory'||type==='shipyard'){
       const old=existingBy(save.factoriesM,x=>String(x.key||'')===key);
       if(!alive){const dead=existingBy(save.factoriesM,x=>String(x.key||'')===key);const deadModel=String(dead&&dead.model||site.game_type||String(key).split('__')[0]);removeMatch(save.factoriesM,x=>String(x.key||'')===key);save.factories[deadModel]=Math.max(0,safeInt(save.factories[deadModel])-1);continue;}
-      const item=Object.assign({},old||{},payload||{});item.key=item.key||key;item.model=String(item.model||site.game_type||String(key).split('__')[0]);item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
+      const item=Object.assign({},old||{},payload||{});item.key=item.key||key;item.model=String(item.model||site.game_type||String(key).split('__')[0]);item.countryKey=item.countryKey||country;fixSiteCoords(item,site);
       if(coordOk(item)&&!old)save.factoriesM.push(item);else if(old&&payload)Object.assign(old,item);
       save.factories[item.model]=Math.max(1,safeInt(save.factories[item.model]));
     }else if(type==='base'){
       const old=existingBy(save.bases,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));
       if(!alive){removeMatch(save.bases,x=>String(x.id||'')===key||((String(x.countryKey||x.country_key||'')===country)&&Math.abs(Number(x.lat)-Number(site.lat))<0.0001&&Math.abs(Number(x.lng)-Number(site.lng))<0.0001));continue;}
-      const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.type=item.type||String(site.game_type||'land');item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
+      const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.type=item.type||String(site.game_type||'land');item.countryKey=item.countryKey||country;fixSiteCoords(item,site);
       if(coordOk(item)&&!old)save.bases.push(item);else if(old&&payload)Object.assign(old,item);
     }else if(['defense','radar','launchpad'].includes(type)){
       const arr=type==='defense'?save.defenses:type==='radar'?save.radars:save.launchpads;
@@ -677,7 +687,7 @@ async function hydrateSaveFromOperationalTables(env,u,server,source){
       // pre-move coordinate; do not append it as a second free unit.
       const hasCountryAsset=arr.some(x=>x&&String(x.countryKey||x.country_key||'')===country);
       if(!old&&hasCountryAsset)continue;
-      const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.countryKey=item.countryKey||country;if(item.lat==null)item.lat=site.lat;if(item.lng==null)item.lng=site.lng;
+      const item=Object.assign({},old||{},payload||{});item.id=item.id||key;item.countryKey=item.countryKey||country;fixSiteCoords(item,site);
       if(type==='launchpad'&&item.missiles==null)item.missiles=0;
       if(coordOk(item)&&!old)arr.push(item);else if(old&&payload)Object.assign(old,item);
     }
