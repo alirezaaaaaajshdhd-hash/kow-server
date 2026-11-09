@@ -1,4 +1,4 @@
-const RELEASE_VERSION='204';const VERSION='50.54.0-kow204-air-mission-clock-and-recovery';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
+const RELEASE_VERSION='205';const VERSION='50.55.0-kow205-load-cpu-and-air-recovery';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
 navalLossPct:0.35,landPrepMs:60000,fighterPrepMs:20000,helicopterPrepMs:20000,dronePrepMs:15000,factoryGroundMs:15*60*1000,factoryAirMs:25*60*1000,factoryMissileMs:30*60*1000,factoryNavalMs:60*60*1000,factoryCapacity:25,truckCount:5,truckCapacity:2,truckMinPerKmMs:5*60*1000,oilTankCapacity:500,oilTankMaxPerCountry:3,steelWarehouseCapacity:500,steelWarehouseMaxPerCountry:3,foodWarehouseCapacity:500,foodWarehouseMaxPerCountry:3,steelProductionIntervalMs:20*60*1000,steelProductionAmount:10,foodProductionIntervalMs:5*60*1000,foodProductionAmount:4,tankerCapacity:1000,tankerType:'oil_tanker',tankerLossPctOnDestruction:1,oilBasePrice:5,oilMinPrice:2,oilMaxPrice:40,oilTickMs:60000,groundBattleDurationMs:12*60*60*1000,
 airPatrolFuelPerMinute:2,airInterceptFuelCost:25,airEmergencyReservePct:0.15,reconSpeedKmPerMin:5000/(2.5*60),reconMissionFuel:20,reconDetectionRadiusKm:200,serverCount:5,serverCountryCapacity:30,factoryMaxPerCountry:3,escortProtectionMs:20*60*1000,initialGold:1000,strategicStateTickMs:15*60*1000,tradeExpiryMs:24*60*60*1000}
 ;const SESSION_DAYS=KOW_TIMING.sessionDays;const ONLINE_MS=KOW_TIMING.onlineMs;const NAVAL_SPEED_KM_S=KOW_TIMING.navalSpeedKmPerSec;function navalDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);return Math.max(KOW_TIMING.navalMinTravelMs,Math.min(KOW_TIMING.navalMaxTravelMs,Math.round(d/Math.max(.001,NAVAL_SPEED_KM_S)*1000)));}function airFuelCapacity(model){const configured=Number(equipmentPerformance(model).gameFuelCapacity);return Number.isFinite(configured)&&configured>0?configured:0;}function airFuelReservePct(model){const p=equipmentPerformance(model);return clamp(Number(p.reservePct??KOW_TIMING.airEmergencyReservePct*100),0,50)/100;}function airFuelBurnPerKm(model,quantity=1){const cap=airFuelCapacity(model),radius=Math.max(1,equipmentRange(model,'combatRadiusKm')||equipmentRange(model,'missionRangeKm')||0);if(!cap||!radius)return 0;return(cap*(1-airFuelReservePct(model))/(2*radius))*Math.max(1,safeInt(quantity,1));}function airEmergencyReserve(model,quantity=1){return airFuelCapacity(model)*Math.max(1,safeInt(quantity,1))*airFuelReservePct(model);}function strategicDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);
@@ -166,7 +166,15 @@ if(env.PAYMENT_CALLBACK_SECRET&&secret&&secret===String(env.PAYMENT_CALLBACK_SEC
 let __kowCanonicalSchemaPromise=null;
 async function ensureCanonicalPersistenceSchema(env){
   if(__kowCanonicalSchemaPromise)return __kowCanonicalSchemaPromise;
-  __kowCanonicalSchemaPromise=(async()=>{const db=env.DB;await db.batch([
+  __kowCanonicalSchemaPromise=(async()=>{
+    const db=env.DB;
+    // Persist the migration gate in D1: Worker isolates are stateless, so a module
+    // promise alone does not prevent every cold request from repeating PRAGMA,
+    // ALTER and full-table backfill work.
+    await db.prepare(`CREATE TABLE IF NOT EXISTS kow_schema_migrations (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, updated_at INTEGER NOT NULL)`).run();
+    const marker=await db.prepare('SELECT version FROM kow_schema_migrations WHERE id=1').first();
+    if(safeInt(marker&&marker.version,0)>=205)return;
+    await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS player_state_meta (username TEXT NOT NULL, server INTEGER NOT NULL, state_version INTEGER NOT NULL DEFAULT 0, coin_balance INTEGER NOT NULL DEFAULT 0, last_snapshot_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, PRIMARY KEY(username,server))`),
     db.prepare(`CREATE TABLE IF NOT EXISTS game_event_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL, server INTEGER NOT NULL, event_key TEXT, event_type TEXT NOT NULL, entity_type TEXT, entity_id TEXT, payload_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, UNIQUE(username,server,event_key))`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_game_event_ledger_player ON game_event_ledger(username,server,created_at)`),
@@ -187,22 +195,23 @@ async function ensureCanonicalPersistenceSchema(env){
     db.prepare(`CREATE TABLE IF NOT EXISTS naval_berth_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER NOT NULL, fleet_id TEXT NOT NULL UNIQUE, username TEXT NOT NULL, server INTEGER NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_naval_berth_queue_site ON naval_berth_queue(site_id,server,created_at,id)`)
   ]);
-  await addColumnIfMissing(db,'game_sites','game_type','TEXT');
-  await addColumnIfMissing(db,'game_sites','payload_json','TEXT');
-  await addColumnIfMissing(db,'naval_loadouts','fuel','REAL DEFAULT 0');const navalLoadoutCols=await tableColumns(db,'naval_loadouts');if(!navalLoadoutCols.has('fuel'))throw new Error('افزودن ستون naval_loadouts.fuel در D1 تأیید نشد.');
-  // v157: this is the schema initializer that fetch() ACTUALLY invokes.
-  // The older ensureSchema() function is legacy and is not on the request path.
-  // naval_fleets was originally created with last_update but not updated_at;
-  // refuel/service-completion SQL uses updated_at. Migrate here, before routing.
-  let navalCols=await tableColumns(db,'naval_fleets');
-  if(!navalCols.size) throw new Error('جدول naval_fleets در D1 پیدا نشد؛ مهاجرت ایمن متوقف شد.');
-  if(!navalCols.has('updated_at')) {
-    await db.prepare('ALTER TABLE naval_fleets ADD COLUMN updated_at INTEGER').run();
-    navalCols=await tableColumns(db,'naval_fleets');
-    if(!navalCols.has('updated_at')) throw new Error('افزودن ستون naval_fleets.updated_at در D1 تأیید نشد.');
-  }
-  await db.prepare('UPDATE naval_fleets SET updated_at=COALESCE(NULLIF(updated_at,0),last_update,created_at,?) WHERE updated_at IS NULL OR updated_at=0').bind(now()).run();
-})();
+    await addColumnIfMissing(db,'game_sites','game_type','TEXT');
+    await addColumnIfMissing(db,'game_sites','payload_json','TEXT');
+    await addColumnIfMissing(db,'naval_loadouts','fuel','REAL DEFAULT 0');
+    const navalLoadoutCols=await tableColumns(db,'naval_loadouts');
+    if(!navalLoadoutCols.has('fuel'))throw new Error('افزودن ستون naval_loadouts.fuel در D1 تأیید نشد.');
+    let navalCols=await tableColumns(db,'naval_fleets');
+    if(!navalCols.size)throw new Error('جدول naval_fleets در D1 پیدا نشد؛ مهاجرت ایمن متوقف شد.');
+    if(!navalCols.has('updated_at')){
+      await db.prepare('ALTER TABLE naval_fleets ADD COLUMN updated_at INTEGER').run();
+      navalCols=await tableColumns(db,'naval_fleets');
+      if(!navalCols.has('updated_at'))throw new Error('افزودن ستون naval_fleets.updated_at در D1 تأیید نشد.');
+    }
+    // One-time backfill only. The previous implementation ran this UPDATE on
+    // every fresh isolate/request, scanning naval_fleets on the hot path.
+    await db.prepare('UPDATE naval_fleets SET updated_at=COALESCE(NULLIF(updated_at,0),last_update,created_at,?) WHERE updated_at IS NULL OR updated_at=0').bind(now()).run();
+    await db.prepare('INSERT INTO kow_schema_migrations(id,version,updated_at) VALUES(1,205,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at').bind(now()).run();
+  })();
   try{return await __kowCanonicalSchemaPromise;}catch(e){__kowCanonicalSchemaPromise=null;throw e;}
 }
 async function ensureGiftCodes(env){
@@ -784,7 +793,7 @@ async function normalizeLegacyMovedAssets(env,u,server,save){
   return save;
 }
 async function hydrateSaveFromOperationalTables(env,u,server,source){
-  const s=clamp(safeInt(server,1),1,1000),save=source&&typeof source==='object'?JSON.parse(JSON.stringify(source)):{};
+  const s=clamp(safeInt(server,1),1,1000),save=source&&typeof source==='object'?source:{};
   const ownRows=(await env.DB.prepare('SELECT country_key FROM country_owners WHERE username=? AND server=? ORDER BY country_key').bind(u.username,s).all()).results||[];
   if(ownRows.length)save.playerTerritories=ownRows.map(r=>String(r.country_key));
   else if(!Array.isArray(save.playerTerritories))save.playerTerritories=[];
@@ -1350,8 +1359,17 @@ if(!save){
 }
 const rr=await getRound(env,s);let syncWarning=null;
 if(save){
-  try{save=await normalizeLegacyMovedAssets(env,u,s,save);}catch(e){console.warn('KOW legacy moved-asset normalization deferred',u.username,s,e);}
-  try{await syncSavedOperationalSites(env,u,s,save);}catch(e){syncWarning=String(e&&e.message||e);console.error('KOW operational site sync deferred; returning persisted save',u.username,s,e);}
+  // Legacy save-to-operational migration is a one-time bootstrap, not login work.
+  // Once this player has canonical game_sites rows, do not re-scan every saved
+  // asset, issue per-item D1 reads/writes, or rewrite the same coordinates on
+  // every /load request. This was a major contributor to the 50 ms CPU ceiling.
+  try{
+    const canonicalCount=await env.DB.prepare('SELECT COUNT(*) AS n FROM game_sites WHERE server=? AND owner_username=?').bind(s,u.username).first();
+    if(safeInt(canonicalCount&&canonicalCount.n)===0){
+      save=await normalizeLegacyMovedAssets(env,u,s,save);
+      await syncSavedOperationalSites(env,u,s,save);
+    }
+  }catch(e){syncWarning=String(e&&e.message||e);console.error('KOW one-time operational bootstrap deferred',u.username,s,e);}
   // Do not report a partial/stale snapshot as a successful load. This exact
   // fallback can make the world map appear while buildings/equipment vanish
   // intermittently on slower or unstable connections / transient D1 failures.
@@ -2058,7 +2076,42 @@ const b=await request.json().catch(()=>({})),s=safeInt(u.server,1),site=await ge
 if(!AIR_FIGHTER_MODELS.has(model))return err('مدل جنگنده نامعتبر');const ready=await availableAirbaseFighters(env,site.id,model);if(ready<q)return err('جنگنده آماده پرواز کافی نیست');
 const fr=await ensureResource(env,site.id,airFuelResource(),100000);const tank=airFuelCapacity(model);if(tank<=0)return err('ظرفیت سوخت این مدل تعریف نشده است',409,origin);if(Number(fr.quantity||0)<q*tank)return err('سوخت پایگاه کافی نیست');const fuelDebit=await env.DB.prepare('UPDATE site_resources SET quantity=quantity-?,updated_at=? WHERE site_id=? AND resource=? AND quantity>=?').bind(q*tank,now(),site.id,airFuelResource(),q*tank).run();
 if(!fuelDebit.meta||safeInt(fuelDebit.meta.changes)!==1)return err('سوخت پایگاه همزمان مصرف شد',409,origin);const id=await createAirMission(env,s,u.username,site,model,q,'patrol',q*tank);
-return json({ok:true,missionId:id,status:'patrol'},200,origin);}if(path==='/air/return'&&method==='POST'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,1000),id=safeInt(b.missionId,0);if(id<=0)return err('شناسه مأموریت نامعتبر است',400,origin);const m=await env.DB.prepare('SELECT * FROM air_missions WHERE id=? AND username=? AND server=?').bind(id,u.username,s).first();if(!m)return err('هواگرد پیدا نشد یا متعلق به شما نیست',404,origin);if(String(m.status)==='striking'){await env.DB.prepare("UPDATE combat_events SET status='resolved',progress=1,result='aborted:return-order',resolved_at=? WHERE air_mission_id=? AND status='pending'").bind(now(),id).run();}if(String(m.status)==='returning')return json({ok:true,alreadyReturning:true,returnEta:m.return_eta},200,origin);const activeCombat=await env.DB.prepare("SELECT id FROM combat_events WHERE air_mission_id=? AND status IN ('pending','resolving') LIMIT 1").bind(id).first();if(activeCombat)return err('تا پایان درگیری امکان تغییر مسیر بازگشت وجود ندارد',409,origin);let home=null;if(m.carrier_fleet_id)home=await env.DB.prepare("SELECT lat,lng FROM naval_fleets WHERE id=? AND username=? AND server=? AND type='carrier' AND count>0 AND status<>'destroyed'").bind(String(m.carrier_fleet_id),u.username,s).first();if(!home&&m.airbase_site_id)home=await env.DB.prepare("SELECT lat,lng FROM game_sites WHERE id=? AND server=? AND owner_username=? AND site_type IN ('airport','airbase','base') AND integrity>0").bind(safeInt(m.airbase_site_id),s,u.username).first();if(!home||![home.lat,home.lng].every(x=>Number.isFinite(Number(x))))return err('فرودگاه یا ناو مبدأ معتبر پیدا نشد',409,origin);let pos={lat:Number(m.current_lat??m.origin_lat??home.lat),lng:Number(m.current_lng??m.origin_lng??home.lng)},fuelAtReturn=Math.max(0,Number(m.fuel||0));if(m.carrier_fleet_id&&['patrol','intercepting'].includes(String(m.status))){let route=[];try{route=JSON.parse(m.route_json||'[]')}catch(_){}if(route.length>1){const total=Math.max(0,routeDistance(route)),elapsed=Math.max(0,now()-safeInt(m.started_at,now())),duration=fastAirDurationMs(total,m.model);if(String(m.mission_type)==='carrier_patrol'){const cycle=Math.max(1,duration*2),phase=elapsed%cycle,km=phase<=duration?total*phase/Math.max(1,duration):total*(2-phase/Math.max(1,duration));pos=movePointOnRoute(route,km);}else if(String(m.mission_type)==='carrier_strike')pos=movePointOnRoute(route,fastTravelKm(total,elapsed,d=>fastAirDurationMs(d,m.model)));fuelAtReturn=Math.max(0,fuelAtReturn-distKm({lat:Number(m.current_lat??m.origin_lat??home.lat),lng:Number(m.current_lng??m.origin_lng??home.lng)},pos)*carrierFuelBurnPerKm(m.model));}}const returnStarted=now(),eta=returnStarted+fastAirDurationMs(distKm(pos,home),m.model);const changed=await env.DB.prepare("UPDATE air_missions SET status='returning',phase='returning',fuel=?,current_lat=?,current_lng=?,return_started_at=?,return_eta=?,updated_at=? WHERE id=? AND username=? AND server=? AND status IN ('patrol','intercepting','striking','ready','damaged')").bind(fuelAtReturn,pos.lat,pos.lng,returnStarted,eta,returnStarted,id,u.username,s).run();if(!changed.meta||safeInt(changed.meta.changes)!==1)return err('وضعیت مأموریت تغییر کرده است؛ فهرست مأموریت‌ها را تازه کن',409,origin);return json({ok:true,missionId:id,status:'returning',returnEta:eta,currentPosition:pos,carrierFleetId:m.carrier_fleet_id||null},200,origin);}if(path==='/radar/air'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
+return json({ok:true,missionId:id,status:'patrol'},200,origin);}if(path==='/air/return'&&method==='POST'){
+ const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
+ const b=await request.json().catch(()=>({})),s=clamp(safeInt(u.server,1),1,1000),id=safeInt(b.missionId,0);
+ if(id<=0)return err('شناسه مأموریت نامعتبر است',400,origin);
+ try{return await withGameLock(env,`air-tick:${s}`,async()=>{
+  const m=await env.DB.prepare('SELECT * FROM air_missions WHERE id=? AND username=? AND server=?').bind(id,u.username,s).first();
+  if(!m)return err('هواگرد پیدا نشد یا متعلق به شما نیست',404,origin);
+  const status=String(m.status||'').toLowerCase();
+  if(['destroyed','finished','failed','lost'].includes(status))return err('این مأموریت پایان یافته و هواگرد قابل بازگردانی نیست',409,origin);
+  if(status==='returning')return json({ok:true,alreadyReturning:true,returnEta:m.return_eta},200,origin);
+  // A player return order cancels not-yet-resolved strike shots. A projectile
+  // already being resolved is only quarantined after its lease expires; replay
+  // is forbidden because damage may have been applied before Worker termination.
+  if(status==='striking'){
+    await env.DB.prepare("UPDATE combat_events SET status='resolved',progress=1,result='aborted:return-order',resolved_at=? WHERE air_mission_id=? AND status='pending'").bind(now(),id).run();
+    await env.DB.prepare("UPDATE combat_events SET status='failed',progress=1,result='failed:worker-timeout-effect-uncertain',resolved_at=? WHERE air_mission_id=? AND status='resolving' AND COALESCE(resolving_started_at,0)<=?").bind(now(),id,now()-120000).run();
+  }
+  const activeCombat=await env.DB.prepare("SELECT id FROM combat_events WHERE air_mission_id=? AND status IN ('pending','resolving') LIMIT 1").bind(id).first();
+  if(activeCombat)return err('یک پرتاب هنوز در حال پردازش است؛ پس از پایان پردازش یا انقضای مهلت بازیابی دوباره فرمان بازگشت بده',409,origin);
+  let home=null;
+  if(m.carrier_fleet_id)home=await env.DB.prepare("SELECT id,lat,lng FROM naval_fleets WHERE id=? AND username=? AND server=? AND type='carrier' AND count>0 AND status<>'destroyed'").bind(String(m.carrier_fleet_id),u.username,s).first();
+  if(!home&&m.airbase_site_id)home=await env.DB.prepare("SELECT id,lat,lng FROM game_sites WHERE id=? AND server=? AND owner_username=? AND site_type IN ('airport','airbase','base') AND integrity>0").bind(safeInt(m.airbase_site_id),s,u.username).first();
+  if(!home||![home.lat,home.lng].every(x=>Number.isFinite(Number(x))))return err('فرودگاه یا ناو مبدأ معتبر پیدا نشد؛ برای جلوگیری از ناپدیدشدن جنگنده، مأموریت تغییر داده نشد',409,origin);
+  let pos={lat:Number(m.current_lat??m.origin_lat??home.lat),lng:Number(m.current_lng??m.origin_lng??home.lng)};
+  if(![pos.lat,pos.lng].every(Number.isFinite)){pos={lat:Number(home.lat),lng:Number(home.lng)};}
+  // Reconstruct a current point from the authoritative route clock only when
+  // the stored coordinates are absent/invalid; never teleport to the base.
+  if((m.current_lat==null||m.current_lng==null)&&String(m.mission_type)==='carrier_strike'){
+   try{const route=JSON.parse(m.route_json||'[]');if(Array.isArray(route)&&route.length>1){const total=routeDistance(route),elapsed=Math.max(0,now()-safeInt(m.started_at,now()));pos=movePointOnRoute(route,Math.min(total,total*elapsed/Math.max(1,fastAirDurationMs(total,m.model))));}}catch(_){}
+  }
+  const t=now(),eta=t+fastAirDurationMs(distKm(pos,home),m.model);
+  const changed=await env.DB.prepare(`UPDATE air_missions SET status='returning',phase='returning',current_lat=?,current_lng=?,route_json=?,return_started_at=?,return_eta=?,updated_at=? WHERE id=? AND username=? AND server=? AND status=?`).bind(pos.lat,pos.lng,JSON.stringify([pos,{lat:Number(home.lat),lng:Number(home.lng)}]),t,eta,t,id,u.username,s,m.status).run();
+  if(!changed.meta||safeInt(changed.meta.changes)!==1)return err('وضعیت مأموریت هم‌زمان تغییر کرد؛ فهرست مأموریت‌ها را تازه کن',409,origin);
+  return json({ok:true,missionId:id,status:'returning',returnEta:eta,currentPosition:pos,carrierFleetId:m.carrier_fleet_id||null,recoveredLegacyStatus:!['patrol','intercepting','striking','ready','damaged'].includes(status)},200,origin);
+ },250);}catch(e){if(String(e&&e.message)==='LOCK_BUSY')return err('مأموریت هم‌زمان در حال به‌روزرسانی است؛ دوباره تلاش کن',409,origin);throw e;}
+}if(path==='/radar/air'&&method==='GET'){const u=await authUser(request,env);if(!u||u.banned)return err('ابتدا وارد شو',401,origin);
 await detectNavalRadar(env,safeInt(u.server,1));const rows=await radarAirContacts(env,safeInt(u.server,1),u.username);return json({ok:true,contacts:rows},200,origin);}if(path==='/air/intercept'&&method==='POST'){const u=await authUser(request,env);
 if(!u||u.banned)return err('ابتدا وارد شو',401,origin);const b=await request.json().catch(()=>({})),s=safeInt(u.server,1),alert=await env.DB.prepare("SELECT * FROM radar_alerts WHERE id=? AND server=? AND defender=? AND source_type IN ('unit','recon') AND status='active' AND alert_until>? ").bind(safeInt(b.alertId),s,u.username,now()).first();
 if(!alert)return err('هدف دیگر در رادار نیست');const target=await env.DB.prepare("SELECT * FROM unit_movements WHERE id=? AND server=? AND username<>? AND kind='fighter' AND status='moving'").bind(safeInt(alert.source_id),s,u.username).first();
