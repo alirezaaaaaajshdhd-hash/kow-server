@@ -1,4 +1,4 @@
-const RELEASE_VERSION='208';const VERSION='50.58.0-kow208-air-mission-fuel-capacity-migration-fix';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
+const RELEASE_VERSION='209';const VERSION='50.59.0-kow209-air-mission-schema-complete-migration-fix';const MIN_CLIENT_VERSION='50.5.0';function versionParts(v){return String(v||'0').replace(/[^0-9.]/g,'').split('.').map(x=>parseInt(x||'0',10)||0);}function versionLt(a,b){const x=versionParts(a),y=versionParts(b);for(let i=0;i<Math.max(x.length,y.length);i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)<(y[i]||0);}return false;}const MAX_BODY=1024*1024;const KOW_TIMING={sessionDays:30,onlineMs:5*60*1000,navalSpeedKmPerSec:0.55,navalPollMs:1000,navalCombatCooldownMs:15000,navalRadarAlertMs:10000,navalMinTravelMs:10000,navalMaxTravelMs:30*60*1000,tankerMinPerKmMs:60*1000,tankerEscortedMinPerKmMs:3*60*1000,strategicMinTravelMs:2*60*60*1000,strategicMaxTravelMs:3*60*60*1000,strategicReferenceKm:5000,airMinTravelMs:20*60*1000,airMaxTravelMs:60*60*1000,airReferenceKm:5000,reconMinTravelMs:15*60*1000,reconMaxTravelMs:60*60*1000,reconReferenceKm:5000,missileMinTravelMs:2*60*1000,missileMaxTravelMs:15*60*1000,missileReferenceKm:450,tankerLoadMsPerBarrel:3*1000,navalFuelCapacity:250,navalFarPointFuel:150,navalRefuelPortMs:10*60*1000,navalRefuelSeaMs:20*60*1000,repairFighterMs:2*60*60*1000,truckLongTravelMs:90*60*1000,tankerEscortRadiusKm:50,
 navalLossPct:0.35,landPrepMs:60000,fighterPrepMs:20000,helicopterPrepMs:20000,dronePrepMs:15000,factoryGroundMs:15*60*1000,factoryAirMs:25*60*1000,factoryMissileMs:30*60*1000,factoryNavalMs:60*60*1000,factoryCapacity:25,truckCount:5,truckCapacity:2,truckMinPerKmMs:5*60*1000,oilTankCapacity:500,oilTankMaxPerCountry:3,steelWarehouseCapacity:500,steelWarehouseMaxPerCountry:3,foodWarehouseCapacity:500,foodWarehouseMaxPerCountry:3,steelProductionIntervalMs:20*60*1000,steelProductionAmount:10,foodProductionIntervalMs:5*60*1000,foodProductionAmount:4,tankerCapacity:1000,tankerType:'oil_tanker',tankerLossPctOnDestruction:1,oilBasePrice:5,oilMinPrice:2,oilMaxPrice:40,oilTickMs:60000,groundBattleDurationMs:12*60*60*1000,
 airPatrolFuelPerMinute:2,airInterceptFuelCost:25,airEmergencyReservePct:0.15,reconSpeedKmPerMin:5000/(2.5*60),reconMissionFuel:20,reconDetectionRadiusKm:200,serverCount:5,serverCountryCapacity:30,factoryMaxPerCountry:3,escortProtectionMs:20*60*1000,initialGold:1000,strategicStateTickMs:15*60*1000,tradeExpiryMs:24*60*60*1000}
 ;const SESSION_DAYS=KOW_TIMING.sessionDays;const ONLINE_MS=KOW_TIMING.onlineMs;const NAVAL_SPEED_KM_S=KOW_TIMING.navalSpeedKmPerSec;function navalDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);return Math.max(KOW_TIMING.navalMinTravelMs,Math.min(KOW_TIMING.navalMaxTravelMs,Math.round(d/Math.max(.001,NAVAL_SPEED_KM_S)*1000)));}function airFuelCapacity(model){const configured=Number(equipmentPerformance(model).gameFuelCapacity);return Number.isFinite(configured)&&configured>0?configured:0;}function airFuelReservePct(model){const p=equipmentPerformance(model);return clamp(Number(p.reservePct??KOW_TIMING.airEmergencyReservePct*100),0,50)/100;}function airFuelBurnPerKm(model,quantity=1){const cap=airFuelCapacity(model),radius=Math.max(1,equipmentRange(model,'combatRadiusKm')||equipmentRange(model,'missionRangeKm')||0);if(!cap||!radius)return 0;return(cap*(1-airFuelReservePct(model))/(2*radius))*Math.max(1,safeInt(quantity,1));}function airEmergencyReserve(model,quantity=1){return airFuelCapacity(model)*Math.max(1,safeInt(quantity,1))*airFuelReservePct(model);}function strategicDurationMs(distanceKm){const d=Math.max(0,Number(distanceKm)||0);
@@ -178,12 +178,25 @@ async function ensureCanonicalPersistenceSchema(env){
     // INSERT. It was added only in legacy ensureSchema(), while live fetch()
     // uses this canonical migration path. Run this check BEFORE any version-gate
     // return so databases already marked v207 are repaired without data reset.
-    await addColumnIfMissing(db,'air_missions','fuel_capacity','REAL NOT NULL DEFAULT 0');
-    const airMissionCols208=await tableColumns(db,'air_missions');
-    if(!airMissionCols208.has('fuel_capacity'))throw new Error('افزودن ستون air_missions.fuel_capacity در D1 تأیید نشد.');
-    if(currentSchemaVersion>=208)return;
-    if(currentSchemaVersion>=207){
-      await db.prepare('INSERT INTO kow_schema_migrations(id,version,updated_at) VALUES(1,208,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at').bind(now()).run();
+    // v209: The live request path uses this canonical migration, not legacy
+    // ensureSchema(). Add and verify the complete set of air_missions columns
+    // used by carrier launch INSERTs and mission lifecycle UPDATEs, regardless
+    // of the stored migration marker. This repairs databases already marked 208.
+    const airMissionRequiredColumns=[
+      ['carrier_fleet_id','TEXT'],['integrity','REAL DEFAULT 100'],['max_integrity','REAL DEFAULT 100'],
+      ['target_site_id','INTEGER'],['target_fleet_id','TEXT'],['target_lat','REAL'],['target_lng','REAL'],
+      ['strike_pass_count','INTEGER NOT NULL DEFAULT 0'],['origin_lat','REAL'],['origin_lng','REAL'],
+      ['phase',"TEXT DEFAULT 'patrol'"],['current_lat','REAL'],['current_lng','REAL'],
+      ['return_started_at','INTEGER'],['return_eta','INTEGER'],['emergency_active','INTEGER NOT NULL DEFAULT 0'],
+      ['fuel_capacity','REAL NOT NULL DEFAULT 0'],['launch_request_id','TEXT']
+    ];
+    for(const [column,type] of airMissionRequiredColumns)await addColumnIfMissing(db,'air_missions',column,type);
+    const airMissionCols209=await tableColumns(db,'air_missions');
+    const missingAirMissionColumns=airMissionRequiredColumns.map(([column])=>column).filter(column=>!airMissionCols209.has(column));
+    if(missingAirMissionColumns.length)throw new Error('مهاجرت ستون‌های air_missions کامل نشد: '+missingAirMissionColumns.join(', '));
+    if(currentSchemaVersion>=209)return;
+    if(currentSchemaVersion>=208){
+      await db.prepare('INSERT INTO kow_schema_migrations(id,version,updated_at) VALUES(1,209,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at').bind(now()).run();
       return;
     }
     await db.batch([
@@ -245,7 +258,7 @@ async function ensureCanonicalPersistenceSchema(env){
     await addColumnIfMissing(db,'air_missions','fuel_capacity','REAL NOT NULL DEFAULT 0');
     const airMissionCols208Final=await tableColumns(db,'air_missions');
     if(!airMissionCols208Final.has('fuel_capacity'))throw new Error('افزودن ستون air_missions.fuel_capacity در D1 تأیید نشد.');
-    await db.prepare('INSERT INTO kow_schema_migrations(id,version,updated_at) VALUES(1,208,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at').bind(now()).run();
+    await db.prepare('INSERT INTO kow_schema_migrations(id,version,updated_at) VALUES(1,209,?) ON CONFLICT(id) DO UPDATE SET version=excluded.version,updated_at=excluded.updated_at').bind(now()).run();
   })();
   try{return await __kowCanonicalSchemaPromise;}catch(e){__kowCanonicalSchemaPromise=null;throw e;}
 }
